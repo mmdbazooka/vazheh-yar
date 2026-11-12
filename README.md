@@ -1,6 +1,6 @@
 # واژه‌یار
 
-تمرین واژگان انگلیسی و فارسی برای دسکتاپ، با Next.js App Router، TypeScript و Tailwind CSS.
+تمرین واژگان انگلیسی و فارسی برای موبایل، تبلت و دسکتاپ، با Next.js App Router، TypeScript و Tailwind CSS.
 
 ```powershell
 npm install

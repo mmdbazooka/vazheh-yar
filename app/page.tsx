@@ -19,11 +19,11 @@ type Filter = "all" | "new" | "due" | "known" | "mistakes";
 const initialSettings: StudySettings = { mode: "smart", scope: "daily", direction: "mixed", limit: 10 };
 
 const navigation = [
-  { id: "home", title: "خانه", icon: House },
-  { id: "practice", title: "تمرین", icon: Layers3 },
-  { id: "words", title: "کتابخانهٔ واژه‌ها", icon: LibraryBig },
-  { id: "mistakes", title: "اشتباه‌های من", icon: ListRestart },
-  { id: "import", title: "افزودن مجموعه", icon: Plus },
+  { id: "home", title: "خانه", shortTitle: "خانه", icon: House },
+  { id: "practice", title: "تمرین", shortTitle: "تمرین", icon: Layers3 },
+  { id: "words", title: "کتابخانهٔ واژه‌ها", shortTitle: "واژه‌ها", icon: LibraryBig },
+  { id: "mistakes", title: "اشتباه‌های من", shortTitle: "اشتباه‌ها", icon: ListRestart },
+  { id: "import", title: "افزودن مجموعه", shortTitle: "افزودن", icon: Plus },
 ] as const;
 
 export default function Home() {
@@ -153,9 +153,9 @@ export default function Home() {
         </button>
 
         <nav aria-label="صفحه‌های واژه‌یار">
-          {navigation.map(({ id, title, icon: Icon }) => (
-            <button className="nav-button" key={id} aria-current={view === id || (id === "practice" && view === "session") ? "page" : undefined}
-              onClick={() => id === "words" ? openWords() : go(id)}><Icon size={19} /><span>{title}</span>{id === "mistakes" && missedEntries.length > 0 && <small className="nav-count">{number(missedEntries.length)}</small>}</button>
+          {navigation.map(({ id, title, shortTitle, icon: Icon }) => (
+            <button className="nav-button" key={id} aria-label={title} aria-current={view === id || (id === "practice" && view === "session") ? "page" : undefined}
+              onClick={() => id === "words" ? openWords() : go(id)}><Icon size={19} /><span className="nav-title">{title}</span><span className="nav-short-title" aria-hidden="true">{shortTitle}</span>{id === "mistakes" && missedEntries.length > 0 && <small className="nav-count">{number(missedEntries.length)}</small>}</button>
           ))}
         </nav>
 
@@ -333,15 +333,15 @@ export default function Home() {
                     </button>
                   </div>
                   <div className="surface library">
-                    <table className="word-table">
-                      <thead><tr><th scope="col">واژه</th><th scope="col">معنی</th><th scope="col">مجموعه</th><th scope="col">تمرین</th></tr></thead>
-                      <tbody>
+                    <table className="word-table" role="table">
+                      <thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">واژه</th><th role="columnheader" scope="col">معنی</th><th role="columnheader" scope="col">مجموعه</th><th role="columnheader" scope="col">تمرین</th></tr></thead>
+                      <tbody role="rowgroup">
                         {missedEntries.map(({ word, collection }) => (
-                          <tr key={word.id}>
-                            <td><bdi dir="ltr" lang="en">{word.en}</bdi></td>
-                            <td>{word.fa}</td>
-                            <td>{collection}</td>
-                            <td><button className="icon-button" aria-label={`فلش‌کارت ${word.en}`} title="باز کردن فلش‌کارت"
+                          <tr role="row" key={word.id}>
+                            <td role="cell"><bdi dir="ltr" lang="en">{word.en}</bdi></td>
+                            <td role="cell">{word.fa}</td>
+                            <td role="cell">{collection}</td>
+                            <td role="cell"><button className="icon-button" aria-label={`فلش‌کارت ${word.en}`} title="باز کردن فلش‌کارت"
                               onClick={() => start({ ...initialSettings, mode: "flash" }, [word], missedDeck, "mistakes")}><BookOpen size={17} /></button></td>
                           </tr>
                         ))}
@@ -428,20 +428,20 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onPractice, no
         </div>
         {audioError && <p className="notice error-text" role="status">پخش تلفظ در این مرورگر در دسترس نیست.</p>}
         {results.length === 0 ? <div className="empty-state">واژه‌ای با این فیلتر پیدا نشد.</div> : (
-          <table className="word-table">
-            <thead><tr><th scope="col">واژه</th><th scope="col">معنی</th><th scope="col">وضعیت</th><th scope="col">تمرین</th></tr></thead>
-            <tbody>{results.slice(0, limit).map((word) => {
+          <table className="word-table" role="table">
+            <thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">واژه</th><th role="columnheader" scope="col">معنی</th><th role="columnheader" scope="col">وضعیت</th><th role="columnheader" scope="col">تمرین</th></tr></thead>
+            <tbody role="rowgroup">{results.slice(0, limit).map((word) => {
               const review = data.reviews[word.id];
               const mastered = isKnown(review);
               return (
-                <tr key={word.id}>
-                  <td><bdi dir="ltr" lang="en">{word.en}</bdi></td>
-                  <td>{word.fa}</td>
-                  <td><button className={`word-status ${mastered ? "known" : ""}`} onClick={() => onToggle(word)} aria-pressed={mastered}
+                <tr role="row" key={word.id}>
+                  <td role="cell"><bdi dir="ltr" lang="en">{word.en}</bdi></td>
+                  <td role="cell">{word.fa}</td>
+                  <td role="cell"><button className={`word-status ${mastered ? "known" : ""}`} onClick={() => onToggle(word)} aria-pressed={mastered}
                     title={mastered ? "بازگرداندن به صف مرور" : "علامت‌گذاری به عنوان یادگرفته‌شده"}>
                     <CircleCheck size={15} /> {mastered ? "یاد گرفتم" : review ? "در حال مرور" : "جدید"}
                   </button></td>
-                  <td><div className="table-actions">
+                  <td role="cell"><div className="table-actions">
                     <button className="icon-button" aria-label={`تلفظ ${word.en}`} title="پخش تلفظ" onClick={() => setAudioError(!pronounce(word.en))}><Volume2 size={17} /></button>
                     <button className="icon-button" aria-label={`فلش‌کارت ${word.en}`} title="باز کردن فلش‌کارت" onClick={() => onPractice(word)}><BookOpen size={17} /></button>
                   </div></td>
@@ -509,6 +509,3 @@ function ImportDeck({ onSave }: { onSave: (name: string, words: Omit<Word, "id">
     </>
   );
 }
-
-
-
