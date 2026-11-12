@@ -1,6 +1,7 @@
 import seed from "./seed.json";
 
-export type Word = { id: string; en: string; fa: string };
+export type WordEntry = { en: string; fa: string };
+export type Word = WordEntry & { id: string };
 export type Deck = { id: string; name: string; words: Word[] };
 export type Review = { level: number; due: number; missed: boolean };
 export type Rating = 0 | 1 | 2;
@@ -18,12 +19,13 @@ export const starter: Deck = {
 
 export type StudyData = {
   decks: Deck[];
+  addedWords: Record<string, Word[]>;
   reviews: Record<string, Review>;
   theme: "light" | "dark" | null;
   deckId: string;
 };
 
-export const defaultData: StudyData = { decks: [], reviews: {}, theme: null, deckId: starter.id };
+export const defaultData: StudyData = { decks: [], addedWords: {}, reviews: {}, theme: null, deckId: starter.id };
 const day = 86_400_000;
 export const isKnown = (review?: Review) => (review?.level ?? 0) >= 3;
 
@@ -67,6 +69,50 @@ type PairGroup = { kind: "match"; words: Word[]; translations: Word[] };
 export type Exercise = Single | PairGroup | { kind: "learn"; words: Word[] };
 export type Attempt = { word: Word; rating: Rating };
 
+function conflicts(left: Word, right: Word) {
+  return overlap(left, right) || normalize(spoken(left.en)) === normalize(spoken(right.en));
+}
+
+function createMatchingExercises(words: Word[], limit: number): PairGroup[] {
+  const roundSize = 5;
+  const remaining = [...words];
+  const rounds: Word[][] = [];
+  let slots = limit;
+
+  while (slots >= 2 && remaining.length >= 2) {
+    const available = Math.min(slots, remaining.length);
+    // Split a remainder of six into two rounds so there is no one-word round.
+    const size = available === roundSize + 1 ? roundSize - 1 : Math.min(roundSize, available);
+    const first = remaining.shift()!;
+    const group = [first];
+
+    for (let index = 0; index < remaining.length && group.length < size;) {
+      const candidate = remaining[index];
+      if (group.some((word) => conflicts(word, candidate))) {
+        index++;
+      } else {
+        group.push(candidate);
+        remaining.splice(index, 1);
+      }
+    }
+
+    if (group.length < 2) continue;
+    const last = remaining[0];
+    if (remaining.length === 1 && slots > group.length && group.length >= 3) {
+      const partnerIndex = group.findIndex((word) => !conflicts(word, last));
+      if (partnerIndex >= 0) {
+        const [partner] = group.splice(partnerIndex, 1);
+        rounds.push(group, [last, partner]);
+        break;
+      }
+    }
+
+    rounds.push(group);
+    slots -= group.length;
+  }
+  return rounds.map((group) => ({ kind: "match", words: group, translations: shuffle(group) }));
+}
+
 export function createExercises(deck: Deck, data: StudyData, settings: StudySettings, retry?: Word[]) {
   const { reviews } = data;
   const today = Date.now();
@@ -80,44 +126,34 @@ export function createExercises(deck: Deck, data: StudyData, settings: StudySett
     new: fresh,
     mistakes: all.filter((word) => reviews[word.id]?.missed),
   };
-  const words = (retry ?? sources[settings.scope]).slice(0, settings.limit);
+  const candidates = retry ?? sources[settings.scope];
+  const mode = settings.mode;
+  if (mode === "match") return createMatchingExercises(candidates, settings.limit);
+
+  const words = candidates.slice(0, settings.limit);
   const exercises: Exercise[] = [];
   const introductions = words.filter((word) => !reviews[word.id]);
-  if (settings.mode === "smart" && introductions.length) {
+  if (mode === "smart" && introductions.length) {
     exercises.push({ kind: "learn", words: introductions });
   }
 
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
-    if (settings.mode === "match") {
-      const group = [word];
-      while (group.length < 4 && i + 1 < words.length) {
-        const next = words[i + 1];
-        if (group.some((item) => overlap(item, next) || normalize(spoken(item.en)) === normalize(spoken(next.en)))) break;
-        group.push(next);
-        i++;
-      }
-      if (group.length > 1) {
-        exercises.push({ kind: "match", words: group, translations: shuffle(group) });
-        continue;
-      }
-    }
-
     const sequence = ["flash", "choice", "type", "choice", "type"] as const;
-    let kind = settings.mode === "smart" ? sequence[i % sequence.length] : settings.mode;
+    let kind = mode === "smart" ? sequence[i % sequence.length] : mode;
     const reverse = settings.direction === "mixed" ? i % 2 === 1 : settings.direction === "fa-en";
     const options: Word[] = [];
     if (kind === "choice") {
       for (const candidate of all) {
         if (candidate.id === word.id) continue;
-        if ([word, ...options].some((item) => overlap(item, candidate) || normalize(spoken(item.en)) === normalize(spoken(candidate.en)))) continue;
+        if ([word, ...options].some((item) => conflicts(item, candidate))) continue;
         options.push(candidate);
         if (options.length === 3) break;
       }
       if (!options.length) kind = "type";
     }
     exercises.push({
-      kind: kind === "match" ? "flash" : kind,
+      kind,
       word,
       reverse,
       options: options.length ? shuffle([...options, word]) : [],
@@ -159,10 +195,12 @@ function csvFields(line: string) {
   return quoted ? [] : [...fields, field];
 }
 
-export function parseWords(input: string) {
-  const words: Omit<Word, "id">[] = [];
+export const wordKey = ({ en, fa }: WordEntry) => normalize(en) + "|" + normalize(fa);
+
+export function parseWords(input: string, existing: readonly WordEntry[] = []) {
+  const words: WordEntry[] = [];
   const invalid: number[] = [];
-  const seen = new Set<string>();
+  const seen = new Set(existing.map(wordKey));
   let duplicates = 0;
 
   input.replace(/^\uFEFF/, "").split(/\r?\n/).forEach((raw, index) => {
@@ -175,7 +213,7 @@ export function parseWords(input: string) {
       invalid.push(index + 1);
       return;
     }
-    const key = normalize(en) + "|" + normalize(fa);
+    const key = wordKey({ en, fa });
     if (seen.has(key)) {
       duplicates++;
       return;

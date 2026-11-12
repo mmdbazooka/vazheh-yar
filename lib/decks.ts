@@ -1,4 +1,4 @@
-import type { Deck } from "./study";
+import { starter, type Deck, type StudyData } from "./study";
 import coding from "./vocabulary/coding.json";
 import web from "./vocabulary/web.json";
 import backend from "./vocabulary/backend.json";
@@ -35,3 +35,10 @@ export const builtInGroups = [
 ];
 
 export const builtInDecks = builtInGroups.flatMap(({ decks }) => decks);
+
+export function getDecks(data: StudyData) {
+  return [starter, ...builtInDecks, ...data.decks].map((deck) => {
+    const additions = data.addedWords[deck.id];
+    return additions?.length ? { ...deck, words: [...deck.words, ...additions] } : deck;
+  });
+}

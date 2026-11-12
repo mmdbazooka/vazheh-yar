@@ -7,16 +7,16 @@ import {
 } from "lucide-react";
 import {
   createExercises, defaultData, isKnown, manualReview, normalize, number, parseWords, pronounce, starter,
-  storageKey, updateReview, type Attempt, type Deck, type Exercise, type Mode, type StudyData,
-  type StudySettings, type Word,
+  storageKey, updateReview, wordKey, type Attempt, type Deck, type Exercise, type Mode, type StudyData,
+  type StudySettings, type Word, type WordEntry,
 } from "../lib/study";
-import { builtInDecks, builtInGroups } from "../lib/decks";
+import { builtInGroups, getDecks } from "../lib/decks";
 import { Dropdown } from "./dropdown";
 import { modes } from "./modes";
 import { cx, tileTone, ui } from "./styles";
 import { Session } from "./session";
 
-type View = "home" | "practice" | "words" | "mistakes" | "import" | "session";
+type View = "home" | "practice" | "words" | "mistakes" | "import" | "append" | "session";
 type Filter = "all" | "new" | "due" | "known" | "mistakes";
 const initialSettings: StudySettings = { mode: "smart", scope: "daily", direction: "mixed", limit: 10 };
 
@@ -27,6 +27,11 @@ const navigation = [
   { id: "mistakes", title: "اشتباه‌های من", shortTitle: "اشتباه‌ها", icon: ListRestart },
   { id: "import", title: "افزودن مجموعه", shortTitle: "افزودن", icon: Plus },
 ] as const;
+
+function readStudyData(): StudyData {
+  const saved = localStorage.getItem(storageKey);
+  return saved ? { ...defaultData, ...JSON.parse(saved) } : defaultData;
+}
 
 export default function Home() {
   const [data, setData] = useState<StudyData>(defaultData);
@@ -41,11 +46,7 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved) as StudyData;
-        setData({ ...defaultData, ...parsed });
-      }
+      setData(readStudyData());
     } catch {
       setStorageError(true);
     }
@@ -65,7 +66,7 @@ export default function Home() {
     }
   }, [data, ready]);
 
-  const decks = [starter, ...builtInDecks, ...data.decks];
+  const decks = getDecks(data);
   const deck = decks.find((item) => item.id === data.deckId) ?? starter;
   const totalWords = decks.reduce((sum, item) => sum + item.words.length, 0);
   const missedEntries = decks.flatMap((item) => item.words
@@ -92,7 +93,9 @@ export default function Home() {
   function start(next: StudySettings, retry?: Word[], source = deck, returnTo: "practice" | "mistakes" = "practice") {
     const exercises = createExercises(source, data, next, retry);
     if (!exercises.length) {
-      setNotice("برای این فیلتر واژه‌ای در صف نیست. گروه دیگری را انتخاب کن.");
+      setNotice(next.mode === "match"
+        ? "برای جفت‌کردن، دست‌کم دو واژهٔ متفاوت با معنی‌های متمایز لازم است. گروه دیگری را انتخاب کن."
+        : "برای این فیلتر واژه‌ای در صف نیست. گروه دیگری را انتخاب کن.");
       return;
     }
     setSettings(next);
@@ -132,13 +135,35 @@ export default function Home() {
     setData((previous) => ({ ...previous, theme }));
   }
 
-  function addDeck(name: string, words: Omit<Word, "id">[]) {
-    const id = crypto.randomUUID();
-    const added = { id, name, words: words.map((word, index) => ({ ...word, id: id + ":" + index })) };
-    setData((previous) => ({ ...previous, decks: [...previous.decks, added], deckId: id }));
-    setFilter("all");
-    go("words");
-    setNotice(`${number(words.length)} واژه به «${name}» اضافه شد.`);
+  function saveWords(name: string, words: WordEntry[], deckId?: string) {
+    try {
+      const previous = readStudyData();
+      const target = deckId ? getDecks(previous).find((item) => item.id === deckId) : undefined;
+      if (deckId && !target) {
+        setNotice("مجموعهٔ مقصد پیدا نشد. مجموعهٔ دیگری را انتخاب کن.");
+        return;
+      }
+
+      const existing = new Set(target?.words.map(wordKey));
+      const additions = words.filter((word) => !existing.has(wordKey(word)))
+        .map((word) => ({ ...word, id: crypto.randomUUID() }));
+      if (!additions.length) {
+        setNotice("این واژه‌ها از قبل در مجموعه هستند.");
+        return;
+      }
+
+      const id = target?.id ?? crypto.randomUUID();
+      const next: StudyData = target
+        ? { ...previous, deckId: id, addedWords: { ...previous.addedWords, [id]: [...(previous.addedWords[id] ?? []), ...additions] } }
+        : { ...previous, deckId: id, decks: [...previous.decks, { id, name, words: additions }] };
+      localStorage.setItem(storageKey, JSON.stringify(next));
+      setData(next);
+      setStorageError(false);
+      openWords();
+      setNotice(number(additions.length) + " واژه به «" + (target?.name ?? name) + "» اضافه شد.");
+    } catch {
+      setNotice("ذخیره در مرورگر انجام نشد. متن واژه‌ها در فرم باقی مانده است.");
+    }
   }
 
   function openWords(next: Filter = "all") {
@@ -156,7 +181,7 @@ export default function Home() {
 
         <nav className={ui.navigation} aria-label="صفحه‌های واژه‌یار">
           {navigation.map(({ id, title, shortTitle, icon: Icon }) => (
-            <button className={ui.navButton} key={id} aria-label={title} aria-current={view === id || (id === "practice" && view === "session") ? "page" : undefined}
+            <button className={ui.navButton} key={id} aria-label={title} aria-current={view === id || (id === "words" && view === "append") || (id === "practice" && view === "session") ? "page" : undefined}
               onClick={() => id === "words" ? openWords() : go(id)}><Icon size={19} /><span className={ui.navTitle}>{title}</span><span className={ui.navShortTitle} aria-hidden="true">{shortTitle}</span>{id === "mistakes" && missedEntries.length > 0 && <small className={ui.navCount}>{number(missedEntries.length)}</small>}</button>
           ))}
         </nav>
@@ -318,7 +343,7 @@ export default function Home() {
           )}
 
           {view === "words" && <Library key={deck.id} deck={deck} data={data} stats={stats} filter={filter}
-            onFilter={setFilter} onToggle={toggleKnown} now={now}
+            onFilter={setFilter} onToggle={toggleKnown} onAdd={() => go("append")} now={now}
             onPractice={(word) => start({ ...initialSettings, mode: "flash" }, [word])} />}
 
           {view === "mistakes" && (
@@ -355,7 +380,9 @@ export default function Home() {
             </>
           )}
 
-          {view === "import" && <ImportDeck onSave={addDeck} />}
+          {(view === "import" || view === "append") && (
+            <ImportDeck key={view} target={view === "append" ? deck : undefined} onSave={saveWords} onCancel={openWords} />
+          )}
 
           {view === "session" && session && <Session key={session.key} deck={session.deck} exercises={session.exercises}
             onGrade={grade} onMiss={markMiss} onExit={() => go(session.returnTo)} onRetry={(words) => start(settings, words, session.deck, session.returnTo)} />}
@@ -385,13 +412,14 @@ function ModeGrid({ selected, onSelect }: { selected?: Mode; onSelect: (mode: Mo
   );
 }
 
-function Library({ deck, data, stats, filter, onFilter, onToggle, onPractice, now }: {
+function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onPractice, now }: {
   deck: Deck;
   data: StudyData;
   stats: Record<"known" | "fresh" | "due" | "mistakes", number>;
   filter: Filter;
   onFilter: (filter: Filter) => void;
   onToggle: (word: Word) => void;
+  onAdd: () => void;
   onPractice: (word: Word) => void;
   now: number;
 }) {
@@ -418,7 +446,10 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onPractice, no
 
   return (
     <>
-      <div className={ui.pageHeading}><h1>کتابخانهٔ واژه‌ها</h1><p>{deck.name} · {number(deck.words.length)} واژه</p></div>
+      <div className={cx(ui.pageHeading, "flex flex-wrap items-end justify-between gap-3")}>
+        <div><h1>کتابخانهٔ واژه‌ها</h1><p className="mt-[5px] text-(--muted)">{deck.name} · {number(deck.words.length)} واژه</p></div>
+        <button className={cx(ui.button, ui.primary)} onClick={onAdd}><Plus size={18} /> افزودن واژه</button>
+      </div>
       <div className={cx(ui.surface, ui.library)}>
         <div className={ui.libraryControls}>
           <div className={ui.searchBox}><Search size={18} /><input aria-label="جست‌وجوی واژه" value={query} dir="auto"
@@ -458,20 +489,29 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onPractice, no
   );
 }
 
-function ImportDeck({ onSave }: { onSave: (name: string, words: Omit<Word, "id">[]) => void }) {
+function ImportDeck({ target, onSave, onCancel }: {
+  target?: Deck;
+  onSave: (name: string, words: WordEntry[], deckId?: string) => void;
+  onCancel: () => void;
+}) {
   const [name, setName] = useState("");
   const [input, setInput] = useState("");
   const [fileError, setFileError] = useState(false);
-  const parsed = useMemo(() => parseWords(input), [input]);
+  const parsed = useMemo(() => parseWords(input, target?.words), [input, target?.words]);
+  const canSave = Boolean((target || name.trim()) && parsed.words.length && !parsed.invalid.length);
 
   return (
     <>
-      <div className={ui.pageHeading}><h1>افزودن مجموعه</h1><p>واژه‌ها را بچسبان یا فایل متنی، CSV یا TSV را انتخاب کن.</p></div>
+      <div className={ui.pageHeading}>
+        <h1>{target ? "افزودن واژه" : "افزودن مجموعه"}</h1>
+        {target && <p>مجموعهٔ مقصد «{target.name}»</p>}
+        <p>واژه‌ها را بچسبان یا فایل متنی، CSV یا TSV را انتخاب کن.</p>
+      </div>
       <form className={cx(ui.surface, ui.importPanel)} onSubmit={(event) => {
         event.preventDefault();
-        if (name.trim() && parsed.words.length && !parsed.invalid.length) onSave(name.trim(), parsed.words);
+        if (canSave) onSave(name.trim(), parsed.words, target?.id);
       }}>
-        <label className={cx(ui.fieldLabel, ui.importLabel)}>نام مجموعه<input className={ui.field} value={name} onChange={(event) => setName(event.target.value)} placeholder="مثلاً واژه‌های کلاس" required maxLength={60} /></label>
+        {!target && <label className={cx(ui.fieldLabel, ui.importLabel)}>نام مجموعه<input className={ui.field} value={name} onChange={(event) => setName(event.target.value)} placeholder="مثلاً واژه‌های کلاس" required maxLength={60} /></label>}
         <label className={cx(ui.fieldLabel, ui.importLabel)}>واژه‌ها
           <textarea className={cx(ui.field, "resize-y")} dir="ltr" value={input} onChange={(event) => { setInput(event.target.value); setFileError(false); }}
             placeholder={"curious | کنجکاو\nsteady | ثابت، پایدار\nlook up | جست‌وجو کردن"} rows={8} spellCheck={false} />
@@ -487,14 +527,15 @@ function ImportDeck({ onSave }: { onSave: (name: string, words: Omit<Word, "id">
                 try {
                   const contents = await file.text();
                   setFileError(false);
-                  setName((previous) => previous || file.name.replace(/\.[^.]+$/, "").slice(0, 60));
+                  if (!target) setName((previous) => previous || file.name.replace(/\.[^.]+$/, "").slice(0, 60));
                   setInput(contents);
                 } catch {
                   setFileError(true);
                 }
               }} />
           </label>
-          <button className={cx(ui.button, ui.primary)} disabled={!name.trim() || !parsed.words.length || parsed.invalid.length > 0}>ذخیرهٔ مجموعه <ArrowLeft size={17} /></button>
+          <button className={cx(ui.button, ui.primary)} disabled={!canSave}>{target ? "افزودن به مجموعه" : "ذخیرهٔ مجموعه"} <ArrowLeft size={17} /></button>
+          {target && <button className={cx(ui.button, ui.secondary)} type="button" onClick={onCancel}>بازگشت</button>}
         </div>
         {fileError && <p className={ui.errorText} role="alert">فایل خوانده نشد. می‌توانی متن آن را مستقیم بچسبانی.</p>}
         {parsed.invalid.length > 0 && <p className={ui.errorText} role="alert">قالب سطرهای {parsed.invalid.slice(0, 10).map(number).join("، ")}{parsed.invalid.length > 10 ? " و سطرهای بعدی" : ""} را بررسی کن.</p>}
