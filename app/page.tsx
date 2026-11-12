@@ -3,15 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownToLine, ArrowLeft, BookOpen, Check, ChevronDown, CircleCheck, Clock3, House,
-  Layers3, LibraryBig, ListRestart, Moon, Plus, Search, Sparkles, Sun, Volume2, X,
+  Layers3, LibraryBig, ListRestart, Moon, Pencil, Plus, Search, Sparkles, Sun, Trash2, Volume2, X,
 } from "lucide-react";
 import {
   createExercises, defaultData, isKnown, manualReview, normalize, number, parseWords, pronounce, starter,
   storageKey, updateReview, wordKey, type Attempt, type Deck, type Exercise, type Mode, type StudyData,
   type StudySettings, type Word, type WordEntry,
 } from "../lib/study";
-import { builtInGroups, getDecks } from "../lib/decks";
+import { builtInGroups, changeLibrary, getDecks, type LibraryChange } from "../lib/decks";
 import { Dropdown } from "./dropdown";
+import { LibraryEditor, type LibraryAction } from "./library-editor";
 import { modes } from "./modes";
 import { cx, tileTone, ui } from "./styles";
 import { Session } from "./session";
@@ -156,13 +157,29 @@ export default function Home() {
       const next: StudyData = target
         ? { ...previous, deckId: id, addedWords: { ...previous.addedWords, [id]: [...(previous.addedWords[id] ?? []), ...additions] } }
         : { ...previous, deckId: id, decks: [...previous.decks, { id, name, words: additions }] };
-      localStorage.setItem(storageKey, JSON.stringify(next));
-      setData(next);
-      setStorageError(false);
+      saveStudyData(next);
       openWords();
       setNotice(number(additions.length) + " واژه به «" + (target?.name ?? name) + "» اضافه شد.");
     } catch {
       setNotice("ذخیره در مرورگر انجام نشد. متن واژه‌ها در فرم باقی مانده است.");
+    }
+  }
+
+  function saveStudyData(next: StudyData) {
+    localStorage.setItem(storageKey, JSON.stringify(next));
+    setData(next);
+    setStorageError(false);
+  }
+
+  function saveLibraryChange(change: LibraryChange) {
+    try {
+      const result = changeLibrary(readStudyData(), deck.id, change);
+      if ("error" in result) return result.error;
+      saveStudyData(result.data);
+      if (change.kind === "delete-deck") setFilter("all");
+      setNotice(result.message);
+    } catch {
+      return "ذخیره در مرورگر انجام نشد. دوباره تلاش کن.";
     }
   }
 
@@ -343,7 +360,7 @@ export default function Home() {
           )}
 
           {view === "words" && <Library key={deck.id} deck={deck} data={data} stats={stats} filter={filter}
-            onFilter={setFilter} onToggle={toggleKnown} onAdd={() => go("append")} now={now}
+            onFilter={setFilter} onToggle={toggleKnown} onAdd={() => go("append")} onManage={saveLibraryChange} now={now}
             onPractice={(word) => start({ ...initialSettings, mode: "flash" }, [word])} />}
 
           {view === "mistakes" && (
@@ -412,7 +429,7 @@ function ModeGrid({ selected, onSelect }: { selected?: Mode; onSelect: (mode: Mo
   );
 }
 
-function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onPractice, now }: {
+function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onManage, onPractice, now }: {
   deck: Deck;
   data: StudyData;
   stats: Record<"known" | "fresh" | "due" | "mistakes", number>;
@@ -420,12 +437,16 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onPract
   onFilter: (filter: Filter) => void;
   onToggle: (word: Word) => void;
   onAdd: () => void;
+  onManage: (change: LibraryChange) => string | undefined;
   onPractice: (word: Word) => void;
   now: number;
 }) {
   const [query, setQuery] = useState("");
   const [limit, setLimit] = useState(24);
   const [audioError, setAudioError] = useState(false);
+  const [action, setAction] = useState<LibraryAction | null>(null);
+  const personal = data.decks.some((item) => item.id === deck.id);
+  const addedIds = new Set(data.addedWords[deck.id]?.map((word) => word.id));
   const filters = [
     { id: "all", title: "همه", count: deck.words.length },
     { id: "new", title: "جدید", count: stats.fresh },
@@ -448,7 +469,19 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onPract
     <>
       <div className={cx(ui.pageHeading, "flex flex-wrap items-end justify-between gap-3")}>
         <div><h1>کتابخانهٔ واژه‌ها</h1><p className="mt-[5px] text-(--muted)">{deck.name} · {number(deck.words.length)} واژه</p></div>
-        <button className={cx(ui.button, ui.primary)} onClick={onAdd}><Plus size={18} /> افزودن واژه</button>
+        <div className={ui.buttonRow}>
+          <button className={cx(ui.button, ui.primary)} onClick={onAdd}><Plus size={18} /> افزودن واژه</button>
+          {personal && (
+            <>
+              <button className={cx(ui.button, ui.secondary)} onClick={() => setAction({ kind: "rename-deck", name: deck.name })}>
+                <Pencil size={16} /> تغییر نام مجموعه
+              </button>
+              <button className={cx(ui.button, ui.secondary, "text-(--error)!")} onClick={() => setAction({ kind: "delete-deck", name: deck.name })}>
+                <Trash2 size={16} /> حذف مجموعه
+              </button>
+            </>
+          )}
+        </div>
       </div>
       <div className={cx(ui.surface, ui.library)}>
         <div className={ui.libraryControls}>
@@ -462,10 +495,11 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onPract
         {audioError && <p className={cx(ui.notice, ui.noticeError)} role="status">پخش تلفظ در این مرورگر در دسترس نیست.</p>}
         {results.length === 0 ? <div className={ui.emptyState}>واژه‌ای با این فیلتر پیدا نشد.</div> : (
           <table className={ui.wordTable} role="table">
-            <thead className={ui.wordHead} role="rowgroup"><tr role="row"><th className={ui.wordHeader} role="columnheader" scope="col">واژه</th><th className={ui.wordHeader} role="columnheader" scope="col">معنی</th><th className={ui.wordHeader} role="columnheader" scope="col">وضعیت</th><th className={ui.wordHeader} role="columnheader" scope="col">تمرین</th></tr></thead>
+            <thead className={ui.wordHead} role="rowgroup"><tr role="row"><th className={ui.wordHeader} role="columnheader" scope="col">واژه</th><th className={ui.wordHeader} role="columnheader" scope="col">معنی</th><th className={ui.wordHeader} role="columnheader" scope="col">وضعیت</th><th className={ui.wordHeader} role="columnheader" scope="col">عملیات</th></tr></thead>
             <tbody className={ui.wordBody} role="rowgroup">{results.slice(0, limit).map((word) => {
               const review = data.reviews[word.id];
               const mastered = isKnown(review);
+              const editable = personal || addedIds.has(word.id);
               return (
                 <tr className={ui.wordRow} role="row" key={word.id}>
                   <td className={cx(ui.wordCell, ui.wordTerm)} role="cell"><bdi dir="ltr" lang="en">{word.en}</bdi></td>
@@ -474,9 +508,17 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onPract
                     title={mastered ? "بازگرداندن به صف مرور" : "علامت‌گذاری به عنوان یادگرفته‌شده"}>
                     <CircleCheck size={15} /> {mastered ? "یاد گرفتم" : review ? "در حال مرور" : "جدید"}
                   </button></td>
-                  <td className={ui.wordCell} role="cell"><div className={ui.tableActions}>
+                  <td className={ui.wordCell} role="cell"><div className={cx(ui.tableActions, editable && "phone:grid phone:grid-cols-2")}>
                     <button className={ui.iconButton} aria-label={`تلفظ ${word.en}`} title="پخش تلفظ" onClick={() => setAudioError(!pronounce(word.en))}><Volume2 size={17} /></button>
                     <button className={ui.iconButton} aria-label={`فلش‌کارت ${word.en}`} title="باز کردن فلش‌کارت" onClick={() => onPractice(word)}><BookOpen size={17} /></button>
+                    {editable && (
+                      <>
+                        <button className={ui.iconButton} aria-label={"ویرایش واژه " + word.en} title="ویرایش واژه"
+                          onClick={() => setAction({ kind: "edit-word", word })}><Pencil size={17} /></button>
+                        <button className={cx(ui.iconButton, "text-(--error)!")} aria-label={"حذف واژه " + word.en} title="حذف واژه"
+                          onClick={() => setAction({ kind: "delete-word", word })}><Trash2 size={17} /></button>
+                      </>
+                    )}
                   </div></td>
                 </tr>
               );
@@ -485,6 +527,7 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onPract
         )}
         {results.length > limit && <div className={ui.emptyState}><button className={cx(ui.button, ui.secondary)} onClick={() => setLimit(limit + 24)}>نمایش واژه‌های بیشتر</button></div>}
       </div>
+      {action && <LibraryEditor action={action} onSave={onManage} onClose={() => setAction(null)} />}
     </>
   );
 }

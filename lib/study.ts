@@ -195,6 +195,8 @@ function csvFields(line: string) {
   return quoted ? [] : [...fields, field];
 }
 
+export const isWordEntry = ({ en, fa }: WordEntry) => /[a-z]/i.test(en) && /\p{Script=Arabic}/u.test(fa);
+
 export const wordKey = ({ en, fa }: WordEntry) => normalize(en) + "|" + normalize(fa);
 
 export function parseWords(input: string, existing: readonly WordEntry[] = []) {
@@ -209,7 +211,7 @@ export function parseWords(input: string, existing: readonly WordEntry[] = []) {
     const divider = line.includes("\t") ? "\t" : line.includes("|") ? "|" : null;
     const [en = "", fa = "", ...extra] = (divider ? line.split(divider) : csvFields(line)).map((field) => field.trim());
     if (index === 0 && /^(en|english|word|انگلیسی)$/i.test(en) && /^(fa|farsi|persian|meaning|فارسی|معنی)$/i.test(fa)) return;
-    if (!/[a-z]/i.test(en) || !/\p{Script=Arabic}/u.test(fa) || extra.length) {
+    if (!isWordEntry({ en, fa }) || extra.length) {
       invalid.push(index + 1);
       return;
     }
