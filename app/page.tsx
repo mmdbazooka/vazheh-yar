@@ -11,7 +11,9 @@ import {
   type StudySettings, type Word,
 } from "../lib/study";
 import { builtInDecks, builtInGroups } from "../lib/decks";
+import { Dropdown } from "./dropdown";
 import { modes } from "./modes";
+import { cx, tileTone, ui } from "./styles";
 import { Session } from "./session";
 
 type View = "home" | "practice" | "words" | "mistakes" | "import" | "session";
@@ -145,81 +147,76 @@ export default function Home() {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <button className="brand" onClick={() => go("home")}>
-          <span className="brand-mark"><BookOpen size={23} strokeWidth={2.2} /></span>
+    <div className={ui.appShell}>
+      <aside className={ui.sidebar}>
+        <button className={ui.brand} onClick={() => go("home")}>
+          <span className={ui.brandMark}><BookOpen size={23} strokeWidth={2.2} /></span>
           <span><b>واژه‌یار</b><small>دفتر تمرین انگلیسی</small></span>
         </button>
 
-        <nav aria-label="صفحه‌های واژه‌یار">
+        <nav className={ui.navigation} aria-label="صفحه‌های واژه‌یار">
           {navigation.map(({ id, title, shortTitle, icon: Icon }) => (
-            <button className="nav-button" key={id} aria-label={title} aria-current={view === id || (id === "practice" && view === "session") ? "page" : undefined}
-              onClick={() => id === "words" ? openWords() : go(id)}><Icon size={19} /><span className="nav-title">{title}</span><span className="nav-short-title" aria-hidden="true">{shortTitle}</span>{id === "mistakes" && missedEntries.length > 0 && <small className="nav-count">{number(missedEntries.length)}</small>}</button>
+            <button className={ui.navButton} key={id} aria-label={title} aria-current={view === id || (id === "practice" && view === "session") ? "page" : undefined}
+              onClick={() => id === "words" ? openWords() : go(id)}><Icon size={19} /><span className={ui.navTitle}>{title}</span><span className={ui.navShortTitle} aria-hidden="true">{shortTitle}</span>{id === "mistakes" && missedEntries.length > 0 && <small className={ui.navCount}>{number(missedEntries.length)}</small>}</button>
           ))}
         </nav>
 
-        <div className="sidebar-footer">
-          <button className="theme-toggle" onClick={toggleTheme} aria-label="تغییر حالت روشن و تاریک">
-            <Sun className="light-icon" size={18} /><Moon className="dark-icon" size={18} />
-            <span className="light-icon">حالت روشن</span><span className="dark-icon">حالت تاریک</span>
-            <span className="switch"><i /></span>
+        <div className={ui.sidebarFooter}>
+          <button className={ui.themeToggle} onClick={toggleTheme} aria-label="تغییر حالت روشن و تاریک">
+            <Sun className={ui.lightIcon} size={18} /><Moon className={ui.darkIcon} size={18} />
+            <span className={ui.lightIcon}>حالت روشن</span><span className={ui.darkIcon}>حالت تاریک</span>
+            <span className={ui.themeSwitch}><i /></span>
           </button>
         </div>
       </aside>
 
-      <main className="main-panel">
-        <header className="topbar">
-          <div className="topbar-inner">
-            <div className="deck-select">
-              <LibraryBig size={17} />
-              <select aria-label="مجموعهٔ فعال" value={deck.id} onChange={(event) => {
-                const deckId = event.target.value;
+      <main>
+        <header className={ui.topbar}>
+          <div className={cx(ui.container, ui.topbarInner)}>
+            <div className="flex min-w-0 phone:flex-1">
+              <Dropdown label="مجموعهٔ فعال" icon={LibraryBig} value={deck.id} items={[
+                { value: starter.id, label: starter.name },
+                ...builtInGroups.map(({ label, decks }) => ({
+                  label,
+                  options: decks.map(({ id, name }) => ({ value: id, label: name })),
+                })),
+                ...(data.decks.length ? [{
+                  label: "مجموعه‌های من",
+                  options: data.decks.map(({ id, name }) => ({ value: id, label: name })),
+                }] : []),
+              ]} onChange={(deckId) => {
                 setData((previous) => ({ ...previous, deckId }));
                 setFilter("all");
                 setNotice("");
                 if (view === "session") go("practice");
-              }}>
-                <option value={starter.id}>{starter.name}</option>
-                {builtInGroups.map(({ label, decks }) => (
-                  <optgroup key={label} label={label}>
-                    {decks.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </optgroup>
-                ))}
-                {data.decks.length > 0 && (
-                  <optgroup label="مجموعه‌های من">
-                    {data.decks.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </optgroup>
-                )}
-              </select>
-              <ChevronDown size={15} className="select-chevron" />
+              }} />
             </div>
-            {view === "session" ? <button className="button secondary small" onClick={() => go(session?.returnTo ?? "practice")}><X size={16} /> پایان تمرین</button>
-              : <button className="button secondary small" onClick={() => go("import")}><Plus size={17} /> مجموعهٔ جدید</button>}
+            {view === "session" ? <button className={cx(ui.button, ui.secondary, ui.smallButton)} onClick={() => go(session?.returnTo ?? "practice")}><X size={16} /> پایان تمرین</button>
+              : <button className={cx(ui.button, ui.secondary, ui.smallButton)} onClick={() => go("import")}><Plus size={17} /> مجموعهٔ جدید</button>}
           </div>
         </header>
 
-        <div className={`content ${view === "session" ? "study-content" : ""}`}>
-          {storageError && <p className="notice error-text" role="alert">ذخیرهٔ محلی مرورگر در دسترس نیست. ممکن است تغییرات پس از بستن صفحه از بین برود.</p>}
-          {notice && <p className="notice" role="status">{notice}</p>}
+        <div className={cx(ui.container, "pb-11 phone:pb-6", view === "session" ? ui.studyContent : ui.content)}>
+          {storageError && <p className={cx(ui.notice, ui.noticeError)} role="alert">ذخیرهٔ محلی مرورگر در دسترس نیست. ممکن است تغییرات پس از بستن صفحه از بین برود.</p>}
+          {notice && <p className={ui.notice} role="status">{notice}</p>}
 
           {view === "home" && (
             <>
-              <div className="page-heading">
+              <div className={ui.pageHeading}>
                 <h1>میز مطالعه</h1>
                 <p>واژه‌های امروزت را مرور کن و چند واژهٔ تازه یاد بگیر.</p>
               </div>
 
-              <details className="surface deck-catalog">
-                <summary>
+              <details className={cx(ui.surface, ui.deckCatalog)}>
+                <summary className={ui.catalogSummary}>
                   <LibraryBig size={19} />
                   <span>همهٔ مجموعه‌ها</span>
-                  <span className="muted">{number(decks.length)} مجموعه · {number(totalWords)} واژه و عبارت</span>
-                  <ChevronDown size={17} />
+                  <span className={ui.catalogCount}>{number(decks.length)} مجموعه · {number(totalWords)} واژه و عبارت</span>
+                  <ChevronDown size={17} className={ui.catalogChevron} />
                 </summary>
-                <div className="catalog-grid">
+                <div className={ui.catalogGrid}>
                   {decks.map((item) => (
-                    <button key={item.id} className="button secondary" onClick={() => {
+                    <button key={item.id} className={cx(ui.button, ui.secondary, ui.catalogButton)} onClick={() => {
                       setData((previous) => ({ ...previous, deckId: item.id }));
                       openWords();
                     }}>
@@ -229,24 +226,24 @@ export default function Home() {
                 </div>
               </details>
 
-              <section className="hero" aria-labelledby="daily-title">
-                <div className="hero-copy">
-                  <div className="hero-label"><Sparkles size={15} /> مرور فاصله‌دار</div>
+              <section className={ui.hero} aria-labelledby="daily-title">
+                <div className={ui.heroCopy}>
+                  <div className={ui.heroLabel}><Sparkles size={15} /> مرور فاصله‌دار</div>
                   <h2 id="daily-title">مرور امروز</h2>
                   <p>{dailyCount
                     ? `${number(dailyCount)} واژه برای این جلسه آماده است.`
                     : "صف امروز خالی است. می‌توانی تمرین آزاد انجام دهی."}</p>
-                  <button className="button hero-button" disabled={!ready} onClick={() => dailyCount
+                  <button className={cx(ui.button, ui.heroButton)} disabled={!ready} onClick={() => dailyCount
                     ? start(initialSettings)
                     : go("practice")}>{dailyCount ? "شروع مرور" : "تمرین آزاد"} <ArrowLeft size={19} /></button>
                 </div>
 
-                <div className="hero-visual">
-                  <div className="orbit orbit-outer" />
-                  <div className="orbit orbit-inner" />
-                  <div className="orbit-dot" />
-                  <div className="progress-ring" style={{ background: `conic-gradient(#c5eca8 ${known / deck.words.length * 100}%, #ffffff23 0)` }}>
-                    <div>
+                <div className={ui.heroVisual}>
+                  <div className={cx(ui.orbit, "w-[278px]")} />
+                  <div className={cx(ui.orbit, "w-[196px]")} />
+                  <div className={ui.orbitDot} />
+                  <div className={ui.progressRing} style={{ background: `conic-gradient(#c5eca8 ${known / deck.words.length * 100}%, #ffffff23 0)` }}>
+                    <div className={ui.ringCenter}>
                       <b>{number(Math.round(known / deck.words.length * 100))}٪</b>
                       <span>از مجموعه یاد گرفتی</span>
                     </div>
@@ -254,22 +251,22 @@ export default function Home() {
                 </div>
               </section>
 
-              <div className="stats-grid">
+              <div className={ui.statsGrid}>
                 {([
                   { label: "یادگرفته‌شده", value: known, icon: CircleCheck, tone: "green", filter: "known" },
                   { label: "آمادهٔ مرور", value: due, icon: Clock3, tone: "peach", filter: "due" },
                   { label: "واژهٔ جدید در مجموعهٔ فعال", value: fresh, icon: BookOpen, tone: "blue", filter: "new" },
                 ] as const).map(({ label, value, icon: Icon, tone, filter }) => (
-                  <button key={label} className="surface stat" onClick={() => openWords(filter)}>
-                    <span className={`icon-tile ${tone}`}><Icon size={21} /></span>
+                  <button key={label} className={cx(ui.surface, ui.stat)} onClick={() => openWords(filter)}>
+                    <span className={cx(ui.iconTile, tileTone[tone], "phone:size-[34px]")}><Icon size={21} /></span>
                     <span><b>{number(value)}</b><small>{label}</small></span>
                   </button>
                 ))}
               </div>
 
-              <div className="section-heading">
+              <div className={ui.sectionHeading}>
                 <h2>روش‌های تمرین</h2>
-                <button className="text-button" onClick={() => go("practice")}>تنظیم تمرین <ArrowLeft size={17} /></button>
+                <button className={ui.textButton} onClick={() => go("practice")}>تنظیم تمرین <ArrowLeft size={17} /></button>
               </div>
               <ModeGrid onSelect={(mode) => {
                 setSettings({ ...initialSettings, mode, scope: "all" });
@@ -280,36 +277,41 @@ export default function Home() {
 
           {view === "practice" && (
             <>
-              <div className="page-heading"><h1>تمرین واژه‌ها</h1><p>روش تمرین، جهت سؤال و تعداد واژه‌ها را انتخاب کن.</p></div>
+              <div className={ui.pageHeading}><h1>تمرین واژه‌ها</h1><p>روش تمرین، جهت سؤال و تعداد واژه‌ها را انتخاب کن.</p></div>
               <ModeGrid selected={settings.mode} onSelect={(mode) => setSettings({ ...settings, mode })} />
-              <section className="surface practice-settings">
+              <section className={cx(ui.surface, ui.practiceSettings)}>
                 <h2>تنظیم جلسه</h2>
-                <div className="settings-grid">
-                  <label>گروه واژه‌ها
-                    <select value={settings.scope} onChange={(event) => setSettings({ ...settings, scope: event.target.value as StudySettings["scope"] })}>
-                      <option value="daily">مرور امروز ({number(due + Math.min(6, fresh))})</option>
-                      <option value="all">کل مجموعه ({number(deck.words.length)})</option>
-                      <option value="new">واژه‌های جدید ({number(fresh)})</option>
-                      <option value="mistakes">اشتباه‌ها ({number(mistakes)})</option>
-                    </select>
-                  </label>
-                  <label>جهت سؤال
-                    <select value={settings.direction} disabled={settings.mode === "listen" || settings.mode === "match"}
-                      onChange={(event) => setSettings({ ...settings, direction: event.target.value as StudySettings["direction"] })}>
-                      <option value="mixed">هر دو جهت</option>
-                      <option value="en-fa">انگلیسی به فارسی</option>
-                      <option value="fa-en">فارسی به انگلیسی</option>
-                    </select>
-                  </label>
-                  <label>تعداد واژه
-                    <select value={settings.limit} onChange={(event) => setSettings({ ...settings, limit: Number(event.target.value) })}>
-                      {[5, 10, 15, 20, 30].map((count) => <option value={count} key={count}>{number(count)} واژه</option>)}
-                    </select>
-                  </label>
+                <div className={ui.settingsGrid}>
+                  <div className={ui.fieldLabel}>
+                    <span>گروه واژه‌ها</span>
+                    <Dropdown<StudySettings["scope"]> label="گروه واژه‌ها" value={settings.scope}
+                      onChange={(scope) => setSettings({ ...settings, scope })} items={[
+                        { value: "daily", label: `مرور امروز (${number(due + Math.min(6, fresh))})` },
+                        { value: "all", label: `کل مجموعه (${number(deck.words.length)})` },
+                        { value: "new", label: `واژه‌های جدید (${number(fresh)})` },
+                        { value: "mistakes", label: `اشتباه‌ها (${number(mistakes)})` },
+                      ]} />
+                  </div>
+                  <div className={ui.fieldLabel}>
+                    <span>جهت سؤال</span>
+                    <Dropdown<StudySettings["direction"]> label="جهت سؤال" value={settings.direction}
+                      disabled={settings.mode === "listen" || settings.mode === "match"}
+                      onChange={(direction) => setSettings({ ...settings, direction })} items={[
+                        { value: "mixed", label: "هر دو جهت" },
+                        { value: "en-fa", label: "انگلیسی به فارسی" },
+                        { value: "fa-en", label: "فارسی به انگلیسی" },
+                      ]} />
+                  </div>
+                  <div className={ui.fieldLabel}>
+                    <span>تعداد واژه</span>
+                    <Dropdown label="تعداد واژه" value={String(settings.limit)}
+                      onChange={(limit) => setSettings({ ...settings, limit: Number(limit) })}
+                      items={[5, 10, 15, 20, 30].map((count) => ({ value: String(count), label: `${number(count)} واژه` }))} />
+                  </div>
                 </div>
-                <div className="button-row">
-                  <button className="button primary" disabled={!ready} onClick={() => start(settings)}>شروع تمرین <ArrowLeft size={18} /></button>
-                  {mistakes > 0 && <button className="button secondary" onClick={() => start({ ...settings, scope: "mistakes" })}><ListRestart size={18} /> مرور اشتباه‌ها</button>}
+                <div className={ui.buttonRow}>
+                  <button className={cx(ui.button, ui.primary)} disabled={!ready} onClick={() => start(settings)}>شروع تمرین <ArrowLeft size={18} /></button>
+                  {mistakes > 0 && <button className={cx(ui.button, ui.secondary)} onClick={() => start({ ...settings, scope: "mistakes" })}><ListRestart size={18} /> مرور اشتباه‌ها</button>}
                 </div>
               </section>
             </>
@@ -321,27 +323,27 @@ export default function Home() {
 
           {view === "mistakes" && (
             <>
-              <div className="page-heading">
+              <div className={ui.pageHeading}>
                 <h1>اشتباه‌های من</h1>
                 <p>{number(missedEntries.length)} واژه از همهٔ مجموعه‌ها. با پاسخ درست، واژه از این فهرست خارج می‌شود.</p>
               </div>
               {missedEntries.length > 0 ? (
                 <>
-                  <div className="button-row mb-4">
-                    <button className="button primary" onClick={() => start({ ...initialSettings, scope: "mistakes" }, undefined, missedDeck, "mistakes")}>
+                  <div className={cx(ui.buttonRow, "mb-4")}>
+                    <button className={cx(ui.button, ui.primary)} onClick={() => start({ ...initialSettings, scope: "mistakes" }, undefined, missedDeck, "mistakes")}>
                       <ListRestart size={18} /> تمرین اشتباه‌ها <ArrowLeft size={18} />
                     </button>
                   </div>
-                  <div className="surface library">
-                    <table className="word-table" role="table">
-                      <thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">واژه</th><th role="columnheader" scope="col">معنی</th><th role="columnheader" scope="col">مجموعه</th><th role="columnheader" scope="col">تمرین</th></tr></thead>
-                      <tbody role="rowgroup">
+                  <div className={cx(ui.surface, ui.library)}>
+                    <table className={ui.wordTable} role="table">
+                      <thead className={ui.wordHead} role="rowgroup"><tr role="row"><th className={ui.wordHeader} role="columnheader" scope="col">واژه</th><th className={ui.wordHeader} role="columnheader" scope="col">معنی</th><th className={ui.wordHeader} role="columnheader" scope="col">مجموعه</th><th className={ui.wordHeader} role="columnheader" scope="col">تمرین</th></tr></thead>
+                      <tbody className={ui.wordBody} role="rowgroup">
                         {missedEntries.map(({ word, collection }) => (
-                          <tr role="row" key={word.id}>
-                            <td role="cell"><bdi dir="ltr" lang="en">{word.en}</bdi></td>
-                            <td role="cell">{word.fa}</td>
-                            <td role="cell">{collection}</td>
-                            <td role="cell"><button className="icon-button" aria-label={`فلش‌کارت ${word.en}`} title="باز کردن فلش‌کارت"
+                          <tr className={ui.wordRow} role="row" key={word.id}>
+                            <td className={cx(ui.wordCell, ui.wordTerm)} role="cell"><bdi dir="ltr" lang="en">{word.en}</bdi></td>
+                            <td className={cx(ui.wordCell, ui.wordMeaning)} role="cell">{word.fa}</td>
+                            <td className={cx(ui.wordCell, ui.wordMeta)} role="cell">{collection}</td>
+                            <td className={ui.wordCell} role="cell"><button className={ui.iconButton} aria-label={`فلش‌کارت ${word.en}`} title="باز کردن فلش‌کارت"
                               onClick={() => start({ ...initialSettings, mode: "flash" }, [word], missedDeck, "mistakes")}><BookOpen size={17} /></button></td>
                           </tr>
                         ))}
@@ -349,7 +351,7 @@ export default function Home() {
                     </table>
                   </div>
                 </>
-              ) : <div className="surface empty-state">فعلاً واژه‌ای برای مرور اشتباه‌ها نداری.</div>}
+              ) : <div className={cx(ui.surface, ui.emptyState)}>فعلاً واژه‌ای برای مرور اشتباه‌ها نداری.</div>}
             </>
           )}
 
@@ -368,14 +370,14 @@ function ModeGrid({ selected, onSelect }: { selected?: Mode; onSelect: (mode: Mo
     ? ["smart", "flash", "choice", "type", "listen", "match"]
     : ["flash", "choice", "type", "listen", "match"];
   return (
-    <div className="mode-grid">
+    <div className={ui.modeGrid}>
       {keys.map((id) => {
         const { title, description, icon: Icon, tone } = modes[id];
         return (
-          <button key={id} className="surface mode-card" aria-pressed={selected ? selected === id : undefined} onClick={() => onSelect(id)}>
-            <span className={`icon-tile ${tone}`}><Icon size={21} /></span>
-            <span className="mode-copy"><b>{title}</b><small>{description}</small></span>
-            {selected === id ? <Check size={18} className="mode-arrow" /> : <ArrowLeft size={17} className="mode-arrow" />}
+          <button key={id} className={cx(ui.surface, ui.modeCard)} aria-pressed={selected ? selected === id : undefined} onClick={() => onSelect(id)}>
+            <span className={cx(ui.iconTile, tileTone[tone])}><Icon size={21} /></span>
+            <span><b>{title}</b><small>{description}</small></span>
+            {selected === id ? <Check size={18} className={ui.modeArrow} /> : <ArrowLeft size={17} className={ui.modeArrow} />}
           </button>
         );
       })}
@@ -416,41 +418,41 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onPractice, no
 
   return (
     <>
-      <div className="page-heading"><h1>کتابخانهٔ واژه‌ها</h1><p>{deck.name} · {number(deck.words.length)} واژه</p></div>
-      <div className="surface library">
-        <div className="library-controls">
-          <div className="search-box"><Search size={18} /><input aria-label="جست‌وجوی واژه" value={query} dir="auto"
+      <div className={ui.pageHeading}><h1>کتابخانهٔ واژه‌ها</h1><p>{deck.name} · {number(deck.words.length)} واژه</p></div>
+      <div className={cx(ui.surface, ui.library)}>
+        <div className={ui.libraryControls}>
+          <div className={ui.searchBox}><Search size={18} /><input aria-label="جست‌وجوی واژه" value={query} dir="auto"
             placeholder="جست‌وجوی واژه یا معنی…" onChange={(event) => { setQuery(event.target.value); setLimit(24); }} /></div>
-          <div className="filters" aria-label="فیلتر واژه‌ها">
-            {filters.map(({ id, title, count }) => <button className="filter-button" aria-pressed={id === filter}
+          <div className={ui.filters} aria-label="فیلتر واژه‌ها">
+            {filters.map(({ id, title, count }) => <button className={ui.filterButton} aria-pressed={id === filter}
               onClick={() => { onFilter(id); setLimit(24); }} key={id}>{title} <small>{number(count)}</small></button>)}
           </div>
         </div>
-        {audioError && <p className="notice error-text" role="status">پخش تلفظ در این مرورگر در دسترس نیست.</p>}
-        {results.length === 0 ? <div className="empty-state">واژه‌ای با این فیلتر پیدا نشد.</div> : (
-          <table className="word-table" role="table">
-            <thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">واژه</th><th role="columnheader" scope="col">معنی</th><th role="columnheader" scope="col">وضعیت</th><th role="columnheader" scope="col">تمرین</th></tr></thead>
-            <tbody role="rowgroup">{results.slice(0, limit).map((word) => {
+        {audioError && <p className={cx(ui.notice, ui.noticeError)} role="status">پخش تلفظ در این مرورگر در دسترس نیست.</p>}
+        {results.length === 0 ? <div className={ui.emptyState}>واژه‌ای با این فیلتر پیدا نشد.</div> : (
+          <table className={ui.wordTable} role="table">
+            <thead className={ui.wordHead} role="rowgroup"><tr role="row"><th className={ui.wordHeader} role="columnheader" scope="col">واژه</th><th className={ui.wordHeader} role="columnheader" scope="col">معنی</th><th className={ui.wordHeader} role="columnheader" scope="col">وضعیت</th><th className={ui.wordHeader} role="columnheader" scope="col">تمرین</th></tr></thead>
+            <tbody className={ui.wordBody} role="rowgroup">{results.slice(0, limit).map((word) => {
               const review = data.reviews[word.id];
               const mastered = isKnown(review);
               return (
-                <tr role="row" key={word.id}>
-                  <td role="cell"><bdi dir="ltr" lang="en">{word.en}</bdi></td>
-                  <td role="cell">{word.fa}</td>
-                  <td role="cell"><button className={`word-status ${mastered ? "known" : ""}`} onClick={() => onToggle(word)} aria-pressed={mastered}
+                <tr className={ui.wordRow} role="row" key={word.id}>
+                  <td className={cx(ui.wordCell, ui.wordTerm)} role="cell"><bdi dir="ltr" lang="en">{word.en}</bdi></td>
+                  <td className={cx(ui.wordCell, ui.wordMeaning)} role="cell">{word.fa}</td>
+                  <td className={cx(ui.wordCell, ui.wordMeta)} role="cell"><button className={ui.wordStatus} onClick={() => onToggle(word)} aria-pressed={mastered}
                     title={mastered ? "بازگرداندن به صف مرور" : "علامت‌گذاری به عنوان یادگرفته‌شده"}>
                     <CircleCheck size={15} /> {mastered ? "یاد گرفتم" : review ? "در حال مرور" : "جدید"}
                   </button></td>
-                  <td role="cell"><div className="table-actions">
-                    <button className="icon-button" aria-label={`تلفظ ${word.en}`} title="پخش تلفظ" onClick={() => setAudioError(!pronounce(word.en))}><Volume2 size={17} /></button>
-                    <button className="icon-button" aria-label={`فلش‌کارت ${word.en}`} title="باز کردن فلش‌کارت" onClick={() => onPractice(word)}><BookOpen size={17} /></button>
+                  <td className={ui.wordCell} role="cell"><div className={ui.tableActions}>
+                    <button className={ui.iconButton} aria-label={`تلفظ ${word.en}`} title="پخش تلفظ" onClick={() => setAudioError(!pronounce(word.en))}><Volume2 size={17} /></button>
+                    <button className={ui.iconButton} aria-label={`فلش‌کارت ${word.en}`} title="باز کردن فلش‌کارت" onClick={() => onPractice(word)}><BookOpen size={17} /></button>
                   </div></td>
                 </tr>
               );
             })}</tbody>
           </table>
         )}
-        {results.length > limit && <div className="load-more"><button className="button secondary" onClick={() => setLimit(limit + 24)}>نمایش واژه‌های بیشتر</button></div>}
+        {results.length > limit && <div className={ui.emptyState}><button className={cx(ui.button, ui.secondary)} onClick={() => setLimit(limit + 24)}>نمایش واژه‌های بیشتر</button></div>}
       </div>
     </>
   );
@@ -464,19 +466,19 @@ function ImportDeck({ onSave }: { onSave: (name: string, words: Omit<Word, "id">
 
   return (
     <>
-      <div className="page-heading"><h1>افزودن مجموعه</h1><p>واژه‌ها را بچسبان یا فایل متنی، CSV یا TSV را انتخاب کن.</p></div>
-      <form className="surface import-panel" onSubmit={(event) => {
+      <div className={ui.pageHeading}><h1>افزودن مجموعه</h1><p>واژه‌ها را بچسبان یا فایل متنی، CSV یا TSV را انتخاب کن.</p></div>
+      <form className={cx(ui.surface, ui.importPanel)} onSubmit={(event) => {
         event.preventDefault();
         if (name.trim() && parsed.words.length && !parsed.invalid.length) onSave(name.trim(), parsed.words);
       }}>
-        <label>نام مجموعه<input value={name} onChange={(event) => setName(event.target.value)} placeholder="مثلاً واژه‌های کلاس" required maxLength={60} /></label>
-        <label>واژه‌ها
-          <textarea dir="ltr" value={input} onChange={(event) => { setInput(event.target.value); setFileError(false); }}
+        <label className={cx(ui.fieldLabel, ui.importLabel)}>نام مجموعه<input className={ui.field} value={name} onChange={(event) => setName(event.target.value)} placeholder="مثلاً واژه‌های کلاس" required maxLength={60} /></label>
+        <label className={cx(ui.fieldLabel, ui.importLabel)}>واژه‌ها
+          <textarea className={cx(ui.field, "resize-y")} dir="ltr" value={input} onChange={(event) => { setInput(event.target.value); setFileError(false); }}
             placeholder={"curious | کنجکاو\nsteady | ثابت، پایدار\nlook up | جست‌وجو کردن"} rows={8} spellCheck={false} />
         </label>
-        <p className="muted import-help">در هر سطر، اول انگلیسی و بعد فارسی را بنویس. برای جداسازی از <bdi>|</bdi>، تب یا ویرگول CSV استفاده کن.</p>
-        <div className="button-row">
-          <label className="button secondary file-button"><ArrowDownToLine size={17} /> انتخاب فایل
+        <p className={cx(ui.muted, ui.importHelp)}>در هر سطر، اول انگلیسی و بعد فارسی را بنویس. برای جداسازی از <bdi>|</bdi>، تب یا ویرگول CSV استفاده کن.</p>
+        <div className={ui.buttonRow}>
+          <label className={cx(ui.button, ui.secondary, ui.fileButton)}><ArrowDownToLine size={17} /> انتخاب فایل
             <input type="file" accept=".txt,.csv,.tsv,text/plain,text/csv,text/tab-separated-values"
               onChange={async (event) => {
                 const file = event.target.files?.[0];
@@ -492,15 +494,15 @@ function ImportDeck({ onSave }: { onSave: (name: string, words: Omit<Word, "id">
                 }
               }} />
           </label>
-          <button className="button primary" disabled={!name.trim() || !parsed.words.length || parsed.invalid.length > 0}>ذخیرهٔ مجموعه <ArrowLeft size={17} /></button>
+          <button className={cx(ui.button, ui.primary)} disabled={!name.trim() || !parsed.words.length || parsed.invalid.length > 0}>ذخیرهٔ مجموعه <ArrowLeft size={17} /></button>
         </div>
-        {fileError && <p className="error-text" role="alert">فایل خوانده نشد. می‌توانی متن آن را مستقیم بچسبانی.</p>}
-        {parsed.invalid.length > 0 && <p className="error-text" role="alert">قالب سطرهای {parsed.invalid.slice(0, 10).map(number).join("، ")}{parsed.invalid.length > 10 ? " و سطرهای بعدی" : ""} را بررسی کن.</p>}
-        {parsed.duplicates > 0 && <p className="muted">{number(parsed.duplicates)} سطر تکراری در پیش‌نمایش حذف شد.</p>}
+        {fileError && <p className={ui.errorText} role="alert">فایل خوانده نشد. می‌توانی متن آن را مستقیم بچسبانی.</p>}
+        {parsed.invalid.length > 0 && <p className={ui.errorText} role="alert">قالب سطرهای {parsed.invalid.slice(0, 10).map(number).join("، ")}{parsed.invalid.length > 10 ? " و سطرهای بعدی" : ""} را بررسی کن.</p>}
+        {parsed.duplicates > 0 && <p className={ui.muted}>{number(parsed.duplicates)} سطر تکراری در پیش‌نمایش حذف شد.</p>}
         {parsed.words.length > 0 && (
-          <div className="import-preview">
+          <div className={ui.importPreview}>
             <h2>پیش‌نمایش {number(parsed.words.length)} واژه</h2>
-            <ul className="retry-list">
+            <ul className={ui.retryList}>
               {parsed.words.slice(0, 5).map((word, index) => <li key={index}><bdi dir="ltr" lang="en">{word.en}</bdi><span>{word.fa}</span></li>)}
             </ul>
           </div>

@@ -8,4 +8,4 @@ export const modes = {
   type: { title: "تایپ جواب", description: "معنی فارسی یا واژهٔ انگلیسی را بنویس", icon: Keyboard, tone: "purple" },
   listen: { title: "دیکتهٔ شنیداری", description: "تلفظ را بشنو و کلمه را تایپ کن", icon: AudioLines, tone: "peach" },
   match: { title: "جفت‌کردن واژه‌ها", description: "هر واژه را به معنی‌اش وصل کن", icon: Blend, tone: "blue" },
-} satisfies Record<Mode, { title: string; description: string; icon: typeof BookOpen; tone: string }>;
+} as const satisfies Record<Mode, { title: string; description: string; icon: typeof BookOpen; tone: string }>;
