@@ -3,7 +3,7 @@
 تمرین واژگان انگلیسی و فارسی برای موبایل، تبلت و دسکتاپ، با Next.js App Router، TypeScript و Tailwind CSS.
 
 ```powershell
-npm install
+npm i
 npm run dev
 ```
 
