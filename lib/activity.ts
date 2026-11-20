@@ -78,9 +78,9 @@ export function addStudyTime(activity: Activity, from: number, to: number): Acti
   return next;
 }
 
-// A visible tab checkpoints every 15 seconds. A suspended or crashed tab cannot add hours on return.
+// Background tabs can go minutes without running a checkpoint.
 export function timerIsLive(timer: StudyTimer | null, now: number): timer is StudyTimer {
-  return !!timer && now >= timer.since && now - timer.since <= minute;
+  return !!timer && now >= timer.since;
 }
 
 export function activityAt(activity: Activity, timer: StudyTimer | null, now: number) {

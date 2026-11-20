@@ -79,7 +79,7 @@ export function Settings({ ready, readData, onRestore, goal, onGoal }: {
           <Dropdown label="هدف روزانهٔ مطالعه" value={String(goal)} onChange={(value) => onGoal(Number(value))}
             items={goals.map((n) => ({ value: String(n), label: number(n) + " دقیقه در روز" }))} />
         </div>
-        <p className={ui.muted}>زمان‌سنج را از نوار بالا روشن کن. هنگام تمرین خودش شروع می‌شود. با عوض کردن زبانه مکث می‌کند و وقتی برگردی ادامه می‌دهد. بستن صفحه زمان ثبت‌شده را ذخیره می‌کند.</p>
+        <p className={ui.muted}>زمان‌سنج را از نوار بالا روشن کن. هنگام تمرین خودش شروع می‌شود و در زبانه‌های دیگر هم ادامه دارد. با زدن دکمهٔ مکث یا بستن صفحه، زمان ثبت‌شده ذخیره می‌شود.</p>
       </section>
       <section className={cx(ui.surface, "grid max-w-[720px] gap-4 p-5 phone:p-3.5")} aria-labelledby="backup-heading">
         <div className="grid gap-1">

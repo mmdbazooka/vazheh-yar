@@ -10,7 +10,6 @@ import { cx, ui } from "./styles";
 export function useStudyTimer(change: ChangeData) {
   const owner = useRef("");
   const practice = useRef<{ from: number; milliseconds: number } | null>(null);
-  const resumeOnReturn = useRef<StudyTimer["source"] | null>(null);
   const start = useCallback((source: StudyTimer["source"], takeOver = false) => {
     if (!owner.current) owner.current = crypto.getRandomValues(new Uint32Array(3)).join("-");
     const now = Date.now();
@@ -20,16 +19,12 @@ export function useStudyTimer(change: ChangeData) {
     });
   }, [change]);
 
-  const checkpoint = useCallback((action: "tick" | "pause" | "hide" | "leave" | "finish" | "expire") => {
+  const checkpoint = useCallback((action: "tick" | "pause" | "leave" | "finish") => {
     const now = Date.now();
-    if (action === "pause" || action === "leave" || action === "finish") resumeOnReturn.current = null;
     change((data) => {
       const timer = data.timer;
-      if (!timer) return data;
-      if (action === "expire") return timerIsLive(timer, now) ? data : { ...data, timer: null };
-      if (action !== "pause" && timer.owner !== owner.current) return data;
+      if (!timer || (action !== "pause" && timer.owner !== owner.current)) return data;
       const live = timerIsLive(timer, now);
-      if (action === "hide" && live) resumeOnReturn.current = timer.source;
       if (practice.current && live && timer.owner === owner.current) {
         practice.current.milliseconds += Math.max(0, now - Math.max(practice.current.from, timer.since));
       }
@@ -40,21 +35,14 @@ export function useStudyTimer(change: ChangeData) {
 
   useEffect(() => {
     const leave = () => checkpoint("leave");
-    const visibility = () => {
-      if (document.hidden) checkpoint("hide");
-      else if (resumeOnReturn.current) {
-        const source = resumeOnReturn.current;
-        resumeOnReturn.current = null;
-        start(source);
-      }
-    };
+    const visibility = () => checkpoint("tick");
     document.addEventListener("visibilitychange", visibility);
     window.addEventListener("pagehide", leave);
     return () => {
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("pagehide", leave);
     };
-  }, [checkpoint, start]);
+  }, [checkpoint]);
 
   function startPractice() {
     practice.current = { from: Date.now(), milliseconds: 0 };
@@ -81,11 +69,7 @@ export function TimerControl({ data, ready, clock }: {
   useEffect(() => {
     if (!timer) return;
     setNow(Date.now());
-    const ticker = window.setInterval(() => {
-      const current = Date.now();
-      setNow(current);
-      if (!timerIsLive(timer, current)) checkpoint("expire");
-    }, 1000);
+    const ticker = window.setInterval(() => setNow(Date.now()), 1000);
     const save = timer.owner === owner.current
       ? window.setInterval(() => checkpoint("tick"), 15_000) : undefined;
     return () => { clearInterval(ticker); clearInterval(save); };
