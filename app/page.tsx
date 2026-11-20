@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownToLine, ArrowLeft, BookOpen, Check, ChevronDown, CircleCheck, Clock3, House,
-  Layers3, LibraryBig, ListRestart, Moon, Pencil, Plus, Search, Sparkles, Sun, Trash2, Volume2, X,
+  Layers3, LibraryBig, ListRestart, Moon, Pencil, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Trash2, Volume2, X,
 } from "lucide-react";
 import {
   createExercises, defaultData, isKnown, manualReview, normalize, number, parseWords, pronounce, starter,
@@ -16,8 +16,9 @@ import { LibraryEditor, type LibraryAction } from "./library-editor";
 import { modes } from "./modes";
 import { cx, tileTone, ui } from "./styles";
 import { Session } from "./session";
+import { Settings } from "./settings";
 
-type View = "home" | "practice" | "words" | "mistakes" | "import" | "append" | "session";
+type View = "home" | "practice" | "words" | "mistakes" | "import" | "append" | "session" | "settings";
 type Filter = "all" | "new" | "due" | "known" | "mistakes";
 const initialSettings: StudySettings = { mode: "smart", scope: "daily", direction: "mixed", limit: 10 };
 
@@ -27,6 +28,7 @@ const navigation = [
   { id: "words", title: "کتابخانهٔ واژه‌ها", shortTitle: "واژه‌ها", icon: LibraryBig },
   { id: "mistakes", title: "اشتباه‌های من", shortTitle: "اشتباه‌ها", icon: ListRestart },
   { id: "import", title: "افزودن مجموعه", shortTitle: "افزودن", icon: Plus },
+  { id: "settings", title: "تنظیمات", shortTitle: "تنظیمات", icon: SettingsIcon },
 ] as const;
 
 function readStudyData(): StudyData {
@@ -169,6 +171,14 @@ export default function Home() {
     localStorage.setItem(storageKey, JSON.stringify(next));
     setData(next);
     setStorageError(false);
+  }
+
+  function restoreStudyData(restored: StudyData) {
+    const hasSelectedDeck = getDecks(restored).some((item) => item.id === restored.deckId);
+    saveStudyData(hasSelectedDeck ? restored : { ...restored, deckId: starter.id });
+    setSession(null);
+    setFilter("all");
+    setNow(Date.now());
   }
 
   function saveLibraryChange(change: LibraryChange) {
@@ -396,6 +406,8 @@ export default function Home() {
               ) : <div className={cx(ui.surface, ui.emptyState)}>فعلاً واژه‌ای برای مرور اشتباه‌ها نداری.</div>}
             </>
           )}
+
+          {view === "settings" && <Settings ready={ready} readData={readStudyData} onRestore={restoreStudyData} />}
 
           {(view === "import" || view === "append") && (
             <ImportDeck key={view} target={view === "append" ? deck : undefined} onSave={saveWords} onCancel={openWords} />
