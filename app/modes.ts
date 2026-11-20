@@ -2,7 +2,7 @@ import { AudioLines, Blend, BookOpen, CircleHelp, Keyboard, Layers3 } from "luci
 import type { Mode } from "../lib/study";
 
 export const modes = {
-  smart: { title: "مرور ترکیبی", description: "ترکیبی از فلش‌کارت، تست و تایپ", icon: BookOpen, tone: "green" },
+  smart: { title: "مرور ترکیبی", description: "آشنایی در گروه‌های کوچک و تکرار واژه‌های دشوار در همین جلسه", icon: BookOpen, tone: "green" },
   flash: { title: "فلش‌کارت", description: "اول از حافظه بگو، بعد جواب را ببین", icon: Layers3, tone: "green" },
   choice: { title: "تست دوطرفه", description: "معادل درست را از میان گزینه‌ها پیدا کن", icon: CircleHelp, tone: "blue" },
   type: { title: "تایپ جواب", description: "معنی فارسی یا واژهٔ انگلیسی را بنویس", icon: Keyboard, tone: "purple" },

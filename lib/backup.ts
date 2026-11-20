@@ -1,8 +1,9 @@
 import { builtInDecks } from "./decks";
+import { activityAt, defaultGoal, drills, goals, type Activity, type Drill } from "./activity";
 import { starter, type Deck, type Review, type StudyData, type Word } from "./study";
 
 const backupFormat = "vazheyar-backup";
-const backupVersion = 1;
+const backupVersion = 2;
 const builtInCollections = [starter, ...builtInDecks];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,7 +37,8 @@ function isAddedWords(value: unknown): value is StudyData["addedWords"] {
   return isRecord(value) && Object.values(value).every(isWordList);
 }
 
-function isStudyData(value: unknown): value is StudyData {
+type LibraryData = Pick<StudyData, "decks" | "addedWords" | "reviews" | "theme" | "deckId">;
+function isLibraryData(value: unknown): value is LibraryData & Record<string, unknown> {
   if (!isRecord(value) ||
     !Array.isArray(value.decks) || !value.decks.every(isDeck) ||
     !isAddedWords(value.addedWords) ||
@@ -50,11 +52,29 @@ function isStudyData(value: unknown): value is StudyData {
   return deckIds.size === decks.length && new Set(words.map(({ id }) => id)).size === words.length;
 }
 
+const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+const isOutcomes = (counts: unknown) => Array.isArray(counts) && counts.length === 3 && counts.every(isCount);
+
+function isActivity(value: unknown): value is Activity {
+  if (!isRecord(value)) return false;
+  return Object.entries(value).every(([key, day]) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
+    const stamp = Date.parse(key + "T00:00:00Z");
+    return Number.isFinite(stamp) && new Date(stamp).toISOString().startsWith(key) &&
+      isRecord(day) && isCount(day.milliseconds) && isCount(day.recovered) && isRecord(day.results) &&
+      Object.entries(day.results).every(([drill, counts]) => drills.includes(drill as Drill) && isOutcomes(counts)) &&
+      isRecord(day.directions) && Object.entries(day.directions).every(([key, counts]) => (key === "en-fa" || key === "fa-en") && isOutcomes(counts));
+  });
+}
+
 export function createBackup(data: StudyData) {
-  const date = new Date().toISOString();
+  const now = Date.now();
+  const date = new Date(now).toISOString();
+  const { timer, ...saved } = data;
+  const snapshot = { ...saved, activity: activityAt(saved.activity, timer, now) };
   return {
     filename: "vazheyar-backup-" + date.slice(0, 10) + ".json",
-    content: JSON.stringify({ format: backupFormat, version: backupVersion, exportedAt: date, data }, null, 2),
+    content: JSON.stringify({ format: backupFormat, version: backupVersion, exportedAt: date, data: snapshot }, null, 2),
   };
 }
 
@@ -68,12 +88,18 @@ export function parseBackup(content: string): StudyData {
   if (!isRecord(value) || value.format !== backupFormat) {
     throw new Error("فایل پشتیبان واژه‌یار را انتخاب کن.");
   }
-  if (value.version !== backupVersion) {
+  if (value.version !== 1 && value.version !== backupVersion) {
     throw new Error("این نسخه از فایل پشتیبان در این برنامه پشتیبانی نمی‌شود.");
   }
-  if (!isStudyData(value.data)) {
+  if (!isLibraryData(value.data)) {
     throw new Error("داده‌های فایل پشتیبان ناقص یا نامعتبرند.");
   }
   const { decks, addedWords, reviews, theme, deckId } = value.data;
-  return { decks, addedWords, reviews, theme, deckId };
+  const library = { decks, addedWords, reviews, theme, deckId };
+  if (value.version === 1) return { ...library, activity: {}, dailyGoal: defaultGoal, timer: null };
+  const { activity, dailyGoal } = value.data;
+  if (!isActivity(activity) || typeof dailyGoal !== "number" || !goals.includes(dailyGoal)) {
+    throw new Error("تاریخچهٔ مطالعه یا هدف روزانه در فایل پشتیبان نامعتبر است.");
+  }
+  return { ...library, activity, dailyGoal, timer: null };
 }

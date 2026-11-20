@@ -1,4 +1,5 @@
 import seed from "./seed.json";
+import { defaultGoal, startingDirection, type Activity, type StudyTimer } from "./activity";
 
 export type WordEntry = { en: string; fa: string };
 export type Word = WordEntry & { id: string };
@@ -7,7 +8,7 @@ export type Review = { level: number; due: number; missed: boolean };
 export type Rating = 0 | 1 | 2;
 export type Direction = "en-fa" | "fa-en" | "mixed";
 export type Mode = "smart" | "flash" | "choice" | "type" | "listen" | "match";
-export type Scope = "daily" | "all" | "mistakes" | "new";
+export type Scope = "daily" | "due" | "all" | "mistakes" | "new";
 export type StudySettings = { mode: Mode; direction: Direction; scope: Scope; limit: number };
 
 export const storageKey = "vazheyar.v1";
@@ -23,14 +24,19 @@ export type StudyData = {
   reviews: Record<string, Review>;
   theme: "light" | "dark" | null;
   deckId: string;
+  activity: Activity;
+  dailyGoal: number;
+  timer: StudyTimer | null;
 };
 
-export const defaultData: StudyData = { decks: [], addedWords: {}, reviews: {}, theme: null, deckId: starter.id };
+export const defaultData: StudyData = {
+  decks: [], addedWords: {}, reviews: {}, theme: null, deckId: starter.id,
+  activity: {}, dailyGoal: defaultGoal, timer: null,
+};
 const day = 86_400_000;
 export const isKnown = (review?: Review) => (review?.level ?? 0) >= 3;
 
-export function updateReview(previous: Review | undefined, rating: Rating): Review {
-  const now = Date.now();
+export function updateReview(previous: Review | undefined, rating: Rating, now = Date.now()): Review {
   const level = previous?.level ?? 0;
   if (rating === 0) return { level: 0, due: now + 10 * 60_000, missed: true };
   if (rating === 1) return { level: Math.min(2, level), due: now + day, missed: previous?.missed ?? false };
@@ -64,13 +70,18 @@ export function shuffle<T>(items: readonly T[]) {
   return shuffled;
 }
 
-type Single = { kind: "flash" | "choice" | "type" | "listen"; word: Word; reverse: boolean; options: Word[] };
+type Single = { kind: "flash" | "choice" | "type" | "listen"; word: Word; reverse: boolean; options: Word[]; revisit?: boolean };
 type PairGroup = { kind: "match"; words: Word[]; translations: Word[] };
 export type Exercise = Single | PairGroup | { kind: "learn"; words: Word[] };
 export type Attempt = { word: Word; rating: Rating };
 
 function conflicts(left: Word, right: Word) {
   return overlap(left, right) || normalize(spoken(left.en)) === normalize(spoken(right.en));
+}
+
+function adaptiveDrill(review: Review | undefined, index: number) {
+  if (review && (review.missed || review.level >= 2)) return "type";
+  return (["choice", "flash", "type"] as const)[index % 3];
 }
 
 function createMatchingExercises(words: Word[], limit: number): PairGroup[] {
@@ -122,6 +133,7 @@ export function createExercises(deck: Deck, data: StudyData, settings: StudySett
   const fresh = all.filter((word) => !reviews[word.id]);
   const sources: Record<Scope, Word[]> = {
     daily: [...due, ...fresh.slice(0, 6)],
+    due,
     all,
     new: fresh,
     mistakes: all.filter((word) => reviews[word.id]?.missed),
@@ -132,16 +144,15 @@ export function createExercises(deck: Deck, data: StudyData, settings: StudySett
 
   const words = candidates.slice(0, settings.limit);
   const exercises: Exercise[] = [];
-  const introductions = words.filter((word) => !reviews[word.id]);
-  if (mode === "smart" && introductions.length) {
-    exercises.push({ kind: "learn", words: introductions });
-  }
-
+  const firstReverse = settings.direction === "mixed" && startingDirection(data.activity, today) === "fa-en";
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
-    const sequence = ["flash", "choice", "type", "choice", "type"] as const;
-    let kind = mode === "smart" ? sequence[i % sequence.length] : mode;
-    const reverse = settings.direction === "mixed" ? i % 2 === 1 : settings.direction === "fa-en";
+    if (mode === "smart" && i % 3 === 0) {
+      const freshGroup = words.slice(i, i + 3).filter((item) => !reviews[item.id]);
+      if (freshGroup.length) exercises.push({ kind: "learn", words: freshGroup });
+    }
+    let kind: Single["kind"] = mode === "smart" ? adaptiveDrill(reviews[word.id], i) : mode;
+    const reverse = settings.direction === "mixed" ? i % 2 === (firstReverse ? 0 : 1) : settings.direction === "fa-en";
     const options: Word[] = [];
     if (kind === "choice") {
       for (const candidate of all) {

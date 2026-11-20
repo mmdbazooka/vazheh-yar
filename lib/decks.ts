@@ -36,7 +36,7 @@ export const builtInGroups = [
 
 export const builtInDecks = builtInGroups.flatMap(({ decks }) => decks);
 
-export function getDecks(data: StudyData) {
+export function getDecks(data: Pick<StudyData, "decks" | "addedWords">) {
   return [starter, ...builtInDecks, ...data.decks].map((deck) => {
     const additions = data.addedWords[deck.id];
     return additions?.length ? { ...deck, words: [...deck.words, ...additions] } : deck;

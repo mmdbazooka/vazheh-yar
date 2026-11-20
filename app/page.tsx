@@ -2,21 +2,25 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowDownToLine, ArrowLeft, BookOpen, Check, ChevronDown, CircleCheck, Clock3, House,
+  ArrowDownToLine, ArrowLeft, BookOpen, Check, CircleCheck, House,
   Layers3, LibraryBig, ListRestart, Moon, Pencil, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Trash2, Volume2, X,
 } from "lucide-react";
 import {
-  createExercises, defaultData, isKnown, manualReview, normalize, number, parseWords, pronounce, starter,
-  storageKey, updateReview, wordKey, type Attempt, type Deck, type Exercise, type Mode, type StudyData,
+  createExercises, isKnown, manualReview, normalize, number, parseWords, pronounce, starter,
+  updateReview, wordKey, type Deck, type Exercise, type Mode, type StudyData,
   type StudySettings, type Word, type WordEntry,
 } from "../lib/study";
 import { builtInGroups, changeLibrary, getDecks, type LibraryChange } from "../lib/decks";
+import { logAnswer } from "../lib/activity";
+import { Dashboard } from "./dashboard";
 import { Dropdown } from "./dropdown";
 import { LibraryEditor, type LibraryAction } from "./library-editor";
 import { modes } from "./modes";
 import { cx, tileTone, ui } from "./styles";
-import { Session } from "./session";
+import { Session, type AnswerReceipt, type GradeAnswer } from "./session";
 import { Settings } from "./settings";
+import { TimerControl, useStudyTimer } from "./study-timer";
+import { useStudyStore } from "./use-study-store";
 
 type View = "home" | "practice" | "words" | "mistakes" | "import" | "append" | "session" | "settings";
 type Filter = "all" | "new" | "due" | "known" | "mistakes";
@@ -31,15 +35,9 @@ const navigation = [
   { id: "settings", title: "تنظیمات", shortTitle: "تنظیمات", icon: SettingsIcon },
 ] as const;
 
-function readStudyData(): StudyData {
-  const saved = localStorage.getItem(storageKey);
-  return saved ? { ...defaultData, ...JSON.parse(saved) } : defaultData;
-}
-
 export default function Home() {
-  const [data, setData] = useState<StudyData>(defaultData);
-  const [ready, setReady] = useState(false);
-  const [storageError, setStorageError] = useState(false);
+  const { data, ready, storageError, changeData, readData, saveData } = useStudyStore();
+  const clock = useStudyTimer(changeData);
   const [view, setView] = useState<View>("home");
   const [settings, setSettings] = useState(initialSettings);
   const [session, setSession] = useState<{ key: number; exercises: Exercise[]; deck: Deck; returnTo: "practice" | "mistakes" } | null>(null);
@@ -47,34 +45,23 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [now, setNow] = useState(() => Date.now());
 
+  const liveDashboard = view === "home" && !!data.timer;
   useEffect(() => {
-    try {
-      setData(readStudyData());
-    } catch {
-      setStorageError(true);
-    }
-    setReady(true);
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    const timer = window.setInterval(() => setNow(Date.now()), liveDashboard ? 1000 : 30_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [liveDashboard]);
 
   useEffect(() => {
     if (!ready) return;
     const theme = data.theme ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     document.documentElement.dataset.theme = theme;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(data));
-    } catch {
-      setStorageError(true);
-    }
-  }, [data, ready]);
+  }, [data.theme, ready]);
 
-  const decks = getDecks(data);
+  const decks = useMemo(() => getDecks({ decks: data.decks, addedWords: data.addedWords }), [data.decks, data.addedWords]);
   const deck = decks.find((item) => item.id === data.deckId) ?? starter;
-  const totalWords = decks.reduce((sum, item) => sum + item.words.length, 0);
-  const missedEntries = decks.flatMap((item) => item.words
+  const missedEntries = useMemo(() => decks.flatMap((item) => item.words
     .filter((word) => data.reviews[word.id]?.missed)
-    .map((word) => ({ word, collection: item.name })));
+    .map((word) => ({ word, collection: item.name }))), [decks, data.reviews]);
   const missedDeck: Deck = {
     id: "mistakes",
     name: "اشتباه‌های من",
@@ -88,7 +75,9 @@ export default function Home() {
   const dailyCount = Math.min(10, due + Math.min(6, fresh));
 
   function go(next: View) {
+    if (view === "session" && next !== "session") clock.finishPractice();
     setView(next);
+    setNow(Date.now());
     setNotice("");
     window.scrollTo(0, 0);
   }
@@ -103,27 +92,28 @@ export default function Home() {
     }
     setSettings(next);
     setSession((previous) => ({ key: (previous?.key ?? 0) + 1, exercises, deck: source, returnTo }));
+    clock.startPractice();
     go("session");
   }
 
-  function grade(attempts: Attempt[]) {
-    setData((previous) => {
-      const reviews = { ...previous.reviews };
-      for (const { word, rating } of attempts) reviews[word.id] = updateReview(reviews[word.id], rating);
-      return { ...previous, reviews };
+  const grade: GradeAnswer = ({ word, rating }, context, replacing) => {
+    const time = replacing?.time ?? Date.now();
+    const receipt: AnswerReceipt = { time, rating };
+    changeData((previous) => {
+      receipt.before = replacing ? replacing.before : previous.reviews[word.id];
+      const activity = logAnswer(previous.activity, time, context, rating, replacing?.rating);
+      let review = receipt.before;
+      // Keep a quick recovery on the spaced schedule. A new miss still enters the mistakes list.
+      if (!context.revisit || (rating === 0 && !review?.missed)) review = updateReview(review, rating, time);
+      const reviews = review && review !== previous.reviews[word.id] ? { ...previous.reviews, [word.id]: review } : previous.reviews;
+      return { ...previous, activity, reviews };
     });
     setNow(Date.now());
-  }
-
-  function markMiss(word: Word) {
-    setData((previous) => {
-      const review = previous.reviews[word.id] ?? updateReview(undefined, 0);
-      return { ...previous, reviews: { ...previous.reviews, [word.id]: { ...review, missed: true } } };
-    });
-  }
+    return receipt;
+  };
 
   function toggleKnown(word: Word) {
-    setData((previous) => {
+    changeData((previous) => {
       const reviews = { ...previous.reviews };
       reviews[word.id] = isKnown(reviews[word.id])
         ? { level: 0, due: Date.now(), missed: false }
@@ -135,12 +125,12 @@ export default function Home() {
 
   function toggleTheme() {
     const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    setData((previous) => ({ ...previous, theme }));
+    changeData((previous) => ({ ...previous, theme }));
   }
 
   function saveWords(name: string, words: WordEntry[], deckId?: string) {
     try {
-      const previous = readStudyData();
+      const previous = readData();
       const target = deckId ? getDecks(previous).find((item) => item.id === deckId) : undefined;
       if (deckId && !target) {
         setNotice("مجموعهٔ مقصد پیدا نشد. مجموعهٔ دیگری را انتخاب کن.");
@@ -159,7 +149,7 @@ export default function Home() {
       const next: StudyData = target
         ? { ...previous, deckId: id, addedWords: { ...previous.addedWords, [id]: [...(previous.addedWords[id] ?? []), ...additions] } }
         : { ...previous, deckId: id, decks: [...previous.decks, { id, name, words: additions }] };
-      saveStudyData(next);
+      saveData(next);
       openWords();
       setNotice(number(additions.length) + " واژه به «" + (target?.name ?? name) + "» اضافه شد.");
     } catch {
@@ -167,15 +157,9 @@ export default function Home() {
     }
   }
 
-  function saveStudyData(next: StudyData) {
-    localStorage.setItem(storageKey, JSON.stringify(next));
-    setData(next);
-    setStorageError(false);
-  }
-
   function restoreStudyData(restored: StudyData) {
     const hasSelectedDeck = getDecks(restored).some((item) => item.id === restored.deckId);
-    saveStudyData(hasSelectedDeck ? restored : { ...restored, deckId: starter.id });
+    saveData(hasSelectedDeck ? restored : { ...restored, deckId: starter.id });
     setSession(null);
     setFilter("all");
     setNow(Date.now());
@@ -183,9 +167,9 @@ export default function Home() {
 
   function saveLibraryChange(change: LibraryChange) {
     try {
-      const result = changeLibrary(readStudyData(), deck.id, change);
+      const result = changeLibrary(readData(), deck.id, change);
       if ("error" in result) return result.error;
-      saveStudyData(result.data);
+      saveData(result.data);
       if (change.kind === "delete-deck") setFilter("all");
       setNotice(result.message);
     } catch {
@@ -237,14 +221,17 @@ export default function Home() {
                   options: data.decks.map(({ id, name }) => ({ value: id, label: name })),
                 }] : []),
               ]} onChange={(deckId) => {
-                setData((previous) => ({ ...previous, deckId }));
+                changeData((previous) => ({ ...previous, deckId }));
                 setFilter("all");
                 setNotice("");
                 if (view === "session") go("practice");
               }} />
             </div>
-            {view === "session" ? <button className={cx(ui.button, ui.secondary, ui.smallButton)} onClick={() => go(session?.returnTo ?? "practice")}><X size={16} /> پایان تمرین</button>
-              : <button className={cx(ui.button, ui.secondary, ui.smallButton)} onClick={() => go("import")}><Plus size={17} /> مجموعهٔ جدید</button>}
+            <div className="flex shrink-0 items-center gap-2 phone:gap-1">
+              <TimerControl data={data} ready={ready} clock={clock} />
+              {view === "session" ? <button aria-label="پایان تمرین" className={cx(ui.button, ui.secondary, ui.smallButton)} onClick={() => go(session?.returnTo ?? "practice")}><X size={16} /><span className="phone:sr-only">پایان تمرین</span></button>
+                : <button aria-label="مجموعهٔ جدید" className={cx(ui.button, ui.secondary, ui.smallButton)} onClick={() => go("import")}><Plus size={17} /><span className="phone:sr-only">مجموعهٔ جدید</span></button>}
+            </div>
           </div>
         </header>
 
@@ -252,84 +239,21 @@ export default function Home() {
           {storageError && <p className={cx(ui.notice, ui.noticeError)} role="alert">ذخیرهٔ محلی مرورگر در دسترس نیست. ممکن است تغییرات پس از بستن صفحه از بین برود.</p>}
           {notice && <p className={ui.notice} role="status">{notice}</p>}
 
-          {view === "home" && (
-            <>
-              <div className={ui.pageHeading}>
-                <h1>میز مطالعه</h1>
-                <p>واژه‌های امروزت را مرور کن و چند واژهٔ تازه یاد بگیر.</p>
-              </div>
-
-              <details className={cx(ui.surface, ui.deckCatalog)}>
-                <summary className={ui.catalogSummary}>
-                  <LibraryBig size={19} />
-                  <span>همهٔ مجموعه‌ها</span>
-                  <span className={ui.catalogCount}>{number(decks.length)} مجموعه · {number(totalWords)} واژه و عبارت</span>
-                  <ChevronDown size={17} className={ui.catalogChevron} />
-                </summary>
-                <div className={ui.catalogGrid}>
-                  {decks.map((item) => (
-                    <button key={item.id} className={cx(ui.button, ui.secondary, ui.catalogButton)} onClick={() => {
-                      setData((previous) => ({ ...previous, deckId: item.id }));
-                      openWords();
-                    }}>
-                      <span>{item.name}</span><small>{number(item.words.length)}</small>
-                    </button>
-                  ))}
-                </div>
-              </details>
-
-              <section className={ui.hero} aria-labelledby="daily-title">
-                <div className={ui.heroCopy}>
-                  <div className={ui.heroLabel}><Sparkles size={15} /> مرور فاصله‌دار</div>
-                  <h2 id="daily-title">مرور امروز</h2>
-                  <p>{dailyCount
-                    ? `${number(dailyCount)} واژه برای این جلسه آماده است.`
-                    : "صف امروز خالی است. می‌توانی تمرین آزاد انجام دهی."}</p>
-                  <button className={cx(ui.button, ui.heroButton)} disabled={!ready} onClick={() => dailyCount
-                    ? start(initialSettings)
-                    : go("practice")}>{dailyCount ? "شروع مرور" : "تمرین آزاد"} <ArrowLeft size={19} /></button>
-                </div>
-
-                <div className={ui.heroVisual}>
-                  <div className={cx(ui.orbit, "w-[278px]")} />
-                  <div className={cx(ui.orbit, "w-[196px]")} />
-                  <div className={ui.orbitDot} />
-                  <div className={ui.progressRing} style={{ background: `conic-gradient(#c5eca8 ${known / deck.words.length * 100}%, #ffffff23 0)` }}>
-                    <div className={ui.ringCenter}>
-                      <b>{number(Math.round(known / deck.words.length * 100))}٪</b>
-                      <span>از مجموعه یاد گرفتی</span>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <div className={ui.statsGrid}>
-                {([
-                  { label: "یادگرفته‌شده", value: known, icon: CircleCheck, tone: "green", filter: "known" },
-                  { label: "آمادهٔ مرور", value: due, icon: Clock3, tone: "peach", filter: "due" },
-                  { label: "واژهٔ جدید در مجموعهٔ فعال", value: fresh, icon: BookOpen, tone: "blue", filter: "new" },
-                ] as const).map(({ label, value, icon: Icon, tone, filter }) => (
-                  <button key={label} className={cx(ui.surface, ui.stat)} onClick={() => openWords(filter)}>
-                    <span className={cx(ui.iconTile, tileTone[tone], "phone:size-[34px]")}><Icon size={21} /></span>
-                    <span><b>{number(value)}</b><small>{label}</small></span>
-                  </button>
-                ))}
-              </div>
-
-              <div className={ui.sectionHeading}>
-                <h2>روش‌های تمرین</h2>
-                <button className={ui.textButton} onClick={() => go("practice")}>تنظیم تمرین <ArrowLeft size={17} /></button>
-              </div>
-              <ModeGrid onSelect={(mode) => {
-                setSettings({ ...initialSettings, mode, scope: "all" });
-                go("practice");
-              }} />
-            </>
-          )}
+          {view === "home" && (ready ? <Dashboard data={data} deck={deck} decks={decks} now={Date.now()} due={due} fresh={fresh}
+            mistakes={mistakes} onMistakes={() => start({ ...initialSettings, scope: "mistakes" })}
+            onReview={() => dailyCount ? start(initialSettings) : go("practice")} onGoal={() => go("settings")} onWords={openWords}
+            onDeck={(item) => { changeData((previous) => ({ ...previous, deckId: item.id })); openWords(); }}
+            onDrill={(mode, direction) => { setSettings({ ...initialSettings, mode, direction: direction ?? "mixed", scope: "all" }); go("practice"); }} />
+            : <h1 aria-busy="true">داشبورد یادگیری</h1>)}
 
           {view === "practice" && (
             <>
               <div className={ui.pageHeading}><h1>تمرین واژه‌ها</h1><p>روش تمرین، جهت سؤال و تعداد واژه‌ها را انتخاب کن.</p></div>
+              {dailyCount > 0 && <section className={cx(ui.surface, "mb-4 flex flex-wrap items-center justify-between gap-3 bg-(--accent-soft)! p-4")}>
+                <div><h2 className="flex items-center gap-2 text-[17px]"><Sparkles size={18} />جلسهٔ پیشنهادی امروز</h2>
+                  <p className="mt-1 text-[13px] text-(--muted)">{number(Math.min(due, dailyCount))} واژهٔ موعد مرور و {number(Math.max(0, dailyCount - due))} واژهٔ تازه از «{deck.name}»</p></div>
+                <button className={cx(ui.button, ui.primary)} onClick={() => start(initialSettings)}>شروع مرور پیشنهادی <ArrowLeft size={16} /></button>
+              </section>}
               <ModeGrid selected={settings.mode} onSelect={(mode) => setSettings({ ...settings, mode })} />
               <section className={cx(ui.surface, ui.practiceSettings)}>
                 <h2>تنظیم جلسه</h2>
@@ -339,6 +263,7 @@ export default function Home() {
                     <Dropdown<StudySettings["scope"]> label="گروه واژه‌ها" value={settings.scope}
                       onChange={(scope) => setSettings({ ...settings, scope })} items={[
                         { value: "daily", label: `مرور امروز (${number(due + Math.min(6, fresh))})` },
+                        { value: "due", label: `فقط موعد مرور (${number(due)})` },
                         { value: "all", label: `کل مجموعه (${number(deck.words.length)})` },
                         { value: "new", label: `واژه‌های جدید (${number(fresh)})` },
                         { value: "mistakes", label: `اشتباه‌ها (${number(mistakes)})` },
@@ -365,6 +290,7 @@ export default function Home() {
                   <button className={cx(ui.button, ui.primary)} disabled={!ready} onClick={() => start(settings)}>شروع تمرین <ArrowLeft size={18} /></button>
                   {mistakes > 0 && <button className={cx(ui.button, ui.secondary)} onClick={() => start({ ...settings, scope: "mistakes" })}><ListRestart size={18} /> مرور اشتباه‌ها</button>}
                 </div>
+                <p className="mt-3 text-[13px] text-(--muted)">زمان‌سنج با شروع تمرین روشن می‌شود. از نوار بالا می‌توانی مکث کنی.</p>
               </section>
             </>
           )}
@@ -377,7 +303,7 @@ export default function Home() {
             <>
               <div className={ui.pageHeading}>
                 <h1>اشتباه‌های من</h1>
-                <p>{number(missedEntries.length)} واژه از همهٔ مجموعه‌ها. با پاسخ درست، واژه از این فهرست خارج می‌شود.</p>
+                <p>{number(missedEntries.length)} واژه از همهٔ مجموعه‌ها. با پاسخ درست و مستقل در مرور بعدی، واژه از این فهرست خارج می‌شود.</p>
               </div>
               {missedEntries.length > 0 ? (
                 <>
@@ -407,30 +333,30 @@ export default function Home() {
             </>
           )}
 
-          {view === "settings" && <Settings ready={ready} readData={readStudyData} onRestore={restoreStudyData} />}
+          {view === "settings" && <Settings ready={ready} readData={readData} onRestore={restoreStudyData} goal={data.dailyGoal}
+            onGoal={(dailyGoal) => changeData((previous) => ({ ...previous, dailyGoal }))} />}
 
           {(view === "import" || view === "append") && (
             <ImportDeck key={view} target={view === "append" ? deck : undefined} onSave={saveWords} onCancel={openWords} />
           )}
 
           {view === "session" && session && <Session key={session.key} deck={session.deck} exercises={session.exercises}
-            onGrade={grade} onMiss={markMiss} onExit={() => go(session.returnTo)} onRetry={(words) => start(settings, words, session.deck, session.returnTo)} />}
+            adaptive={settings.mode === "smart"} onGrade={grade} onComplete={clock.finishPractice} onExit={() => go(session.returnTo)} onDashboard={() => go("home")}
+            onRetry={(words) => start(settings.mode === "match" ? { ...settings, mode: "type" } : settings, words, session.deck, session.returnTo)} />}
         </div>
       </main>
     </div>
   );
 }
 
-function ModeGrid({ selected, onSelect }: { selected?: Mode; onSelect: (mode: Mode) => void }) {
-  const keys: Mode[] = selected
-    ? ["smart", "flash", "choice", "type", "listen", "match"]
-    : ["flash", "choice", "type", "listen", "match"];
+function ModeGrid({ selected, onSelect }: { selected: Mode; onSelect: (mode: Mode) => void }) {
+  const keys: Mode[] = ["smart", "flash", "choice", "type", "listen", "match"];
   return (
     <div className={ui.modeGrid}>
       {keys.map((id) => {
         const { title, description, icon: Icon, tone } = modes[id];
         return (
-          <button key={id} className={cx(ui.surface, ui.modeCard)} aria-pressed={selected ? selected === id : undefined} onClick={() => onSelect(id)}>
+          <button key={id} className={cx(ui.surface, ui.modeCard)} aria-pressed={selected === id} onClick={() => onSelect(id)}>
             <span className={cx(ui.iconTile, tileTone[tone])}><Icon size={21} /></span>
             <span><b>{title}</b><small>{description}</small></span>
             {selected === id ? <Check size={18} className={ui.modeArrow} /> : <ArrowLeft size={17} className={ui.modeArrow} />}
