@@ -221,10 +221,15 @@ export const isWordEntry = ({ en, fa }: WordEntry) => /[a-z]/i.test(en) && /\p{S
 
 export const wordKey = ({ en, fa }: WordEntry) => normalize(en) + "|" + normalize(fa);
 
-export function parseWords(input: string, existing: readonly WordEntry[] = []) {
+export function englishWordKey(en: string) {
+  return spoken(en.trim()).normalize("NFKC").toLowerCase()
+    .replace(/[‘’]/g, "'").replace(/\s+/g, " ");
+}
+
+export function parseWords(input: string, existing: ReadonlySet<string>) {
   const words: WordEntry[] = [];
   const invalid: number[] = [];
-  const seen = new Set(existing.map(wordKey));
+  const seen = new Set(existing);
   let duplicates = 0;
 
   input.replace(/^\uFEFF/, "").split(/\r?\n/).forEach((raw, index) => {
@@ -236,7 +241,7 @@ export function parseWords(input: string, existing: readonly WordEntry[] = []) {
       invalid.push(index + 1);
       return;
     }
-    const key = wordKey({ en, fa });
+    const key = englishWordKey(en);
     if (seen.has(key)) {
       duplicates++;
       return;

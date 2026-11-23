@@ -6,8 +6,8 @@ import {
   Layers3, LibraryBig, ListRestart, Moon, Pencil, Plus, Search, Settings as SettingsIcon, Sparkles, StickyNote, Sun, Trash2, Volume2, X,
 } from "lucide-react";
 import {
-  createExercises, isKnown, isWordEntry, manualReview, normalize, number, parseWords, pronounce, starter,
-  updateReview, wordKey, type Deck, type Exercise, type Mode, type StudyData,
+  createExercises, englishWordKey, isKnown, isWordEntry, manualReview, normalize, number, parseWords, pronounce, starter,
+  updateReview, type Deck, type Exercise, type Mode, type StudyData,
   type StudySettings, type Word, type WordEntry,
 } from "../lib/study";
 import { builtInGroups, changeLibrary, getDecks, type LibraryChange } from "../lib/decks";
@@ -43,6 +43,7 @@ export default function Home() {
   const [settings, setSettings] = useState(initialSettings);
   const [session, setSession] = useState<{ key: number; exercises: Exercise[]; deck: Deck; returnTo: "practice" | "mistakes" } | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const [allWords, setAllWords] = useState(false);
   const [notice, setNotice] = useState("");
   const [now, setNow] = useState(() => Date.now());
 
@@ -59,6 +60,7 @@ export default function Home() {
   }, [data.theme, ready]);
 
   const decks = useMemo(() => getDecks({ decks: data.decks, addedWords: data.addedWords }), [data.decks, data.addedWords]);
+  const vocabularyKeys = useMemo(() => new Set(decks.flatMap((item) => item.words.map((word) => englishWordKey(word.en)))), [decks]);
   const deck = decks.find((item) => item.id === data.deckId) ?? starter;
   const missedEntries = useMemo(() => decks.flatMap((item) => item.words
     .filter((word) => data.reviews[word.id]?.missed)
@@ -68,11 +70,9 @@ export default function Home() {
     name: "اشتباه‌های من",
     words: missedEntries.map(({ word }) => word),
   };
-  const known = deck.words.filter((word) => isKnown(data.reviews[word.id])).length;
   const fresh = deck.words.filter((word) => !data.reviews[word.id]).length;
   const due = deck.words.filter((word) => data.reviews[word.id]?.due <= now).length;
   const mistakes = deck.words.filter((word) => data.reviews[word.id]?.missed).length;
-  const stats = { known, fresh, due, mistakes };
   const dailyCount = Math.min(10, due + Math.min(6, fresh));
 
   function go(next: View) {
@@ -129,24 +129,29 @@ export default function Home() {
     changeData((previous) => ({ ...previous, theme }));
   }
 
-  function saveWords(name: string, words: WordEntry[], deckId?: string) {
+  function saveWords(name: string, words: WordEntry[], deckId?: string, duplicates = 0) {
     try {
       const previous = readData();
-      const target = deckId ? getDecks(previous).find((item) => item.id === deckId) : undefined;
+      const latestDecks = getDecks(previous);
+      const target = latestDecks.find((item) => item.id === deckId);
       if (deckId && !target) {
         setNotice("مجموعهٔ مقصد پیدا نشد. مجموعهٔ دیگری را انتخاب کن.");
         return;
       }
 
-      const existing = new Set(target?.words.map(wordKey));
+      const existing = new Set(latestDecks.flatMap((item) => item.words.map((word) => englishWordKey(word.en))));
       const wordNotes = { ...previous.wordNotes };
-      const additions = words.filter((word) => !existing.has(wordKey(word))).map(({ en, fa, note }) => {
+      const additions: Word[] = [];
+      for (const { en, fa, note } of words) {
+        const key = englishWordKey(en);
+        if (existing.has(key)) continue;
+        existing.add(key);
         const id = crypto.randomUUID();
         if (note) wordNotes[id] = note;
-        return { en, fa, id };
-      });
+        additions.push({ en, fa, id });
+      }
       if (!additions.length) {
-        setNotice("این واژه‌ها از قبل در مجموعه هستند.");
+        setNotice("این واژه‌ها از قبل در کتابخانه هستند.");
         return;
       }
 
@@ -156,7 +161,9 @@ export default function Home() {
         : { ...previous, deckId: id, wordNotes, decks: [...previous.decks, { id, name, words: additions }] };
       saveData(next);
       openWords();
-      setNotice(number(additions.length) + " واژه به «" + (target?.name ?? name) + "» اضافه شد.");
+      const skipped = duplicates + words.length - additions.length;
+      setNotice(number(additions.length) + " واژه به «" + (target?.name ?? name) + "» اضافه شد." +
+        (skipped ? " " + number(skipped) + " واژهٔ تکراری رد شد." : ""));
     } catch {
       setNotice("ذخیره در مرورگر انجام نشد. متن واژه‌ها در فرم باقی مانده است.");
     }
@@ -170,9 +177,9 @@ export default function Home() {
     setNow(Date.now());
   }
 
-  function saveLibraryChange(change: LibraryChange) {
+  function saveLibraryChange(deckId: string, change: LibraryChange) {
     try {
-      const result = changeLibrary(readData(), deck.id, change);
+      const result = changeLibrary(readData(), deckId, change);
       if ("error" in result) return result.error;
       saveData(result.data);
       if (change.kind === "delete-deck") setFilter("all");
@@ -182,7 +189,8 @@ export default function Home() {
     }
   }
 
-  function openWords(next: Filter = "all") {
+  function openWords(next: Filter = "all", showAll = false) {
+    setAllWords(showAll);
     setFilter(next);
     go("words");
   }
@@ -198,7 +206,7 @@ export default function Home() {
         <nav className={ui.navigation} aria-label="صفحه‌های واژه‌یار">
           {navigation.map(({ id, title, shortTitle, icon: Icon }) => (
             <button className={ui.navButton} key={id} aria-label={title} aria-current={view === id || (id === "words" && view === "append") || (id === "practice" && view === "session") ? "page" : undefined}
-              onClick={() => id === "words" ? openWords() : go(id)}><Icon size={19} /><span className={ui.navTitle}>{title}</span><span className={ui.navShortTitle} aria-hidden="true">{shortTitle}</span>{id === "mistakes" && missedEntries.length > 0 && <small className={ui.navCount}>{number(missedEntries.length)}</small>}</button>
+              onClick={() => id === "words" ? openWords("all", allWords) : go(id)}><Icon size={19} /><span className={ui.navTitle}>{title}</span><span className={ui.navShortTitle} aria-hidden="true">{shortTitle}</span>{id === "mistakes" && missedEntries.length > 0 && <small className={ui.navCount}>{number(missedEntries.length)}</small>}</button>
           ))}
         </nav>
 
@@ -227,6 +235,7 @@ export default function Home() {
                 }] : []),
               ]} onChange={(deckId) => {
                 changeData((previous) => ({ ...previous, deckId }));
+                setAllWords(false);
                 setFilter("all");
                 setNotice("");
                 if (view === "session") go("practice");
@@ -300,9 +309,9 @@ export default function Home() {
             </>
           )}
 
-          {view === "words" && <Library key={deck.id} deck={deck} data={data} stats={stats} filter={filter}
+          {view === "words" && <Library key={deck.id} deck={deck} decks={decks} data={data} filter={filter} allWords={allWords} onScopeChange={setAllWords}
             onFilter={setFilter} onToggle={toggleKnown} onAdd={() => go("append")} onManage={saveLibraryChange} now={now}
-            onPractice={(word) => start({ ...initialSettings, mode: "flash" }, [word])} />}
+            onPractice={(word, source) => start({ ...initialSettings, mode: "flash" }, [word], source)} />}
 
           {view === "mistakes" && (
             <>
@@ -342,7 +351,7 @@ export default function Home() {
             onGoal={(dailyGoal) => changeData((previous) => ({ ...previous, dailyGoal }))} />}
 
           {(view === "import" || view === "append") && (
-            <ImportDeck key={view} target={view === "append" ? deck : undefined} onSave={saveWords} onCancel={openWords} />
+            <ImportDeck key={view} target={view === "append" ? deck : undefined} existing={vocabularyKeys} onSave={saveWords} onCancel={() => go("words")} />
           )}
 
           {view === "session" && session && <Session key={session.key} deck={session.deck} exercises={session.exercises}
@@ -373,56 +382,74 @@ function ModeGrid({ selected, onSelect }: { selected: Mode; onSelect: (mode: Mod
   );
 }
 
-function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onManage, onPractice, now }: {
+function Library({ deck, decks, data, filter, allWords, onScopeChange, onFilter, onToggle, onAdd, onManage, onPractice, now }: {
   deck: Deck;
+  decks: Deck[];
   data: StudyData;
-  stats: Record<"known" | "fresh" | "due" | "mistakes", number>;
   filter: Filter;
+  allWords: boolean;
+  onScopeChange: (allWords: boolean) => void;
   onFilter: (filter: Filter) => void;
   onToggle: (word: Word) => void;
   onAdd: () => void;
-  onManage: (change: LibraryChange) => string | undefined;
-  onPractice: (word: Word) => void;
+  onManage: (deckId: string, change: LibraryChange) => string | undefined;
+  onPractice: (word: Word, deck: Deck) => void;
   now: number;
 }) {
   const [query, setQuery] = useState("");
   const [limit, setLimit] = useState(24);
   const [audioError, setAudioError] = useState(false);
-  const [action, setAction] = useState<LibraryAction | null>(null);
-  const personal = data.decks.some((item) => item.id === deck.id);
-  const addedIds = new Set(data.addedWords[deck.id]?.map((word) => word.id));
-  const filters = [
-    { id: "all", title: "همه", count: deck.words.length },
-    { id: "new", title: "جدید", count: stats.fresh },
-    { id: "due", title: "آمادهٔ مرور", count: stats.due },
-    { id: "known", title: "یادگرفته‌شده", count: stats.known },
-    { id: "mistakes", title: "اشتباه‌ها", count: stats.mistakes },
-  ] as const;
-
+  const [action, setAction] = useState<{ deckId: string; change: LibraryAction } | null>(null);
+  const personalIds = new Set(data.decks.map((item) => item.id));
+  const addedIds = new Set(Object.values(data.addedWords).flat().map((word) => word.id));
+  const entries = useMemo(() => (allWords ? decks : [deck]).flatMap((source) =>
+    source.words.map((word) => ({ word, source }))).sort((a, b) => a.word.en.localeCompare(b.word.en, "en")),
+  [allWords, decks, deck]);
+  const counts = { all: entries.length, new: 0, due: 0, known: 0, mistakes: 0 };
   const needle = normalize(query);
-  const results = deck.words.filter((word) => {
+  const results = entries.filter(({ word }) => {
     const review = data.reviews[word.id];
     const note = data.wordNotes[word.id];
-    if (filter === "new" && review) return false;
-    if (filter === "due" && (!review || review.due > now)) return false;
-    if (filter === "known" && !isKnown(review)) return false;
-    if (filter === "mistakes" && !review?.missed) return false;
+    const statuses = {
+      new: !review,
+      due: !!review && review.due <= now,
+      known: isKnown(review),
+      mistakes: !!review?.missed,
+    };
+    if (statuses.new) counts.new++;
+    if (statuses.due) counts.due++;
+    if (statuses.known) counts.known++;
+    if (statuses.mistakes) counts.mistakes++;
+    if (filter !== "all" && !statuses[filter]) return false;
     return !needle || normalize(word.en).includes(needle) || normalize(word.fa).includes(needle) ||
       (typeof note === "string" && normalize(note).includes(needle));
-  }).sort((a, b) => a.en.localeCompare(b.en, "en"));
+  });
+  const filters = [
+    { id: "all", title: "همه" },
+    { id: "new", title: "جدید" },
+    { id: "due", title: "آمادهٔ مرور" },
+    { id: "known", title: "یادگرفته‌شده" },
+    { id: "mistakes", title: "اشتباه‌ها" },
+  ] as const;
+
+  function selectScope(showAll: boolean) {
+    onScopeChange(showAll);
+    onFilter("all");
+    setLimit(24);
+  }
 
   return (
     <>
       <div className={cx(ui.pageHeading, "flex flex-wrap items-end justify-between gap-3")}>
-        <div><h1>کتابخانهٔ واژه‌ها</h1><p className="mt-[5px] text-(--muted)">{deck.name} · {number(deck.words.length)} واژه</p></div>
+        <div><h1>کتابخانهٔ واژه‌ها</h1><p className="mt-[5px] text-(--muted)">{allWords ? "همهٔ مجموعه‌ها" : deck.name} · {number(entries.length)} واژه</p></div>
         <div className={ui.buttonRow}>
-          <button className={cx(ui.button, ui.primary)} onClick={onAdd}><Plus size={18} /> افزودن واژه</button>
-          {personal && (
+          <button className={cx(ui.button, ui.primary)} onClick={onAdd}><Plus size={18} /> {allWords ? "افزودن به مجموعهٔ فعال" : "افزودن واژه"}</button>
+          {!allWords && personalIds.has(deck.id) && (
             <>
-              <button className={cx(ui.button, ui.secondary)} onClick={() => setAction({ kind: "rename-deck", name: deck.name })}>
+              <button className={cx(ui.button, ui.secondary)} onClick={() => setAction({ deckId: deck.id, change: { kind: "rename-deck", name: deck.name } })}>
                 <Pencil size={16} /> تغییر نام مجموعه
               </button>
-              <button className={cx(ui.button, ui.secondary, "text-(--error)!")} onClick={() => setAction({ kind: "delete-deck", name: deck.name })}>
+              <button className={cx(ui.button, ui.secondary, "text-(--error)!")} onClick={() => setAction({ deckId: deck.id, change: { kind: "delete-deck", name: deck.name } })}>
                 <Trash2 size={16} /> حذف مجموعه
               </button>
             </>
@@ -430,26 +457,33 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onManag
         </div>
       </div>
       <div className={cx(ui.surface, ui.library)}>
+        <div className="flex flex-wrap gap-1 border-b border-(--line) px-3 py-2" role="group" aria-label="محدودهٔ جست‌وجو">
+          <button className={ui.filterButton} aria-pressed={!allWords} onClick={() => selectScope(false)}>مجموعهٔ فعال</button>
+          <button className={ui.filterButton} aria-pressed={allWords} onClick={() => selectScope(true)}>همهٔ واژه‌ها</button>
+        </div>
         <div className={ui.libraryControls}>
           <div className={ui.searchBox}><Search size={18} /><input aria-label="جست‌وجوی واژه" value={query} dir="auto"
             placeholder="واژه، معنی یا یادداشت…" onChange={(event) => { setQuery(event.target.value); setLimit(24); }} /></div>
           <div className={ui.filters} aria-label="فیلتر واژه‌ها">
-            {filters.map(({ id, title, count }) => <button className={ui.filterButton} aria-pressed={id === filter}
-              onClick={() => { onFilter(id); setLimit(24); }} key={id}>{title} <small>{number(count)}</small></button>)}
+            {filters.map(({ id, title }) => <button className={ui.filterButton} aria-pressed={id === filter}
+              onClick={() => { onFilter(id); setLimit(24); }} key={id}>{title} <small>{number(counts[id])}</small></button>)}
           </div>
         </div>
         {audioError && <p className={cx(ui.notice, ui.noticeError)} role="status">پخش تلفظ در این مرورگر در دسترس نیست.</p>}
         {results.length === 0 ? <div className={ui.emptyState}>واژه‌ای با این فیلتر پیدا نشد.</div> : (
           <table className={ui.wordTable} role="table">
             <thead className={ui.wordHead} role="rowgroup"><tr role="row"><th className={ui.wordHeader} role="columnheader" scope="col">واژه</th><th className={ui.wordHeader} role="columnheader" scope="col">معنی</th><th className={ui.wordHeader} role="columnheader" scope="col">وضعیت</th><th className={ui.wordHeader} role="columnheader" scope="col">عملیات</th></tr></thead>
-            <tbody className={ui.wordBody} role="rowgroup">{results.slice(0, limit).map((word) => {
+            <tbody className={ui.wordBody} role="rowgroup">{results.slice(0, limit).map(({ word, source }) => {
               const review = data.reviews[word.id];
               const mastered = isKnown(review);
-              const editable = personal || addedIds.has(word.id);
+              const editable = personalIds.has(source.id) || addedIds.has(word.id);
               const note = data.wordNotes[word.id];
               return (
                 <tr className={ui.wordRow} role="row" key={word.id}>
-                  <td className={cx(ui.wordCell, ui.wordTerm)} role="cell"><bdi dir="ltr" lang="en">{word.en}</bdi></td>
+                  <td className={cx(ui.wordCell, ui.wordTerm)} role="cell">
+                    <bdi dir="ltr" lang="en">{word.en}</bdi>
+                    {allWords && <small className="block text-[11px] font-normal text-(--muted)">{source.name}</small>}
+                  </td>
                   <td className={cx(ui.wordCell, ui.wordMeaning)} role="cell">{word.fa}<WordNote note={note} /></td>
                   <td className={cx(ui.wordCell, ui.wordMeta)} role="cell"><button className={ui.wordStatus} onClick={() => onToggle(word)} aria-pressed={mastered}
                     title={mastered ? "بازگرداندن به صف مرور" : "علامت‌گذاری به عنوان یادگرفته‌شده"}>
@@ -457,18 +491,18 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onManag
                   </button></td>
                   <td className={ui.wordCell} role="cell"><div className={cx(ui.tableActions, editable && "phone:grid phone:grid-cols-2")}>
                     <button className={ui.iconButton} aria-label={`تلفظ ${word.en}`} title="پخش تلفظ" onClick={() => setAudioError(!pronounce(word.en))}><Volume2 size={17} /></button>
-                    <button className={ui.iconButton} aria-label={`فلش‌کارت ${word.en}`} title="باز کردن فلش‌کارت" onClick={() => onPractice(word)}><BookOpen size={17} /></button>
+                    <button className={ui.iconButton} aria-label={`فلش‌کارت ${word.en}`} title="باز کردن فلش‌کارت" onClick={() => onPractice(word, source)}><BookOpen size={17} /></button>
                     {editable && (
                       <>
                         <button className={ui.iconButton} aria-label={"ویرایش واژه " + word.en} title="ویرایش واژه و یادداشت"
-                          onClick={() => setAction({ kind: "edit-word", word, note })}><Pencil size={17} /></button>
+                          onClick={() => setAction({ deckId: source.id, change: { kind: "edit-word", word, note } })}><Pencil size={17} /></button>
                         <button className={cx(ui.iconButton, "text-(--error)!")} aria-label={"حذف واژه " + word.en} title="حذف واژه"
-                          onClick={() => setAction({ kind: "delete-word", word })}><Trash2 size={17} /></button>
+                          onClick={() => setAction({ deckId: source.id, change: { kind: "delete-word", word } })}><Trash2 size={17} /></button>
                       </>
                     )}
                     {!editable && <button className={cx(ui.iconButton, note && "bg-(--accent-soft)")}
                       aria-label={"مثال یا یادداشت " + word.en} title={note ? "ویرایش یادداشت" : "افزودن مثال یا یادداشت"}
-                      onClick={() => setAction({ kind: "edit-note", word, note })}><StickyNote size={17} /></button>}
+                      onClick={() => setAction({ deckId: source.id, change: { kind: "edit-note", word, note } })}><StickyNote size={17} /></button>}
                   </div></td>
                 </tr>
               );
@@ -477,14 +511,15 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onManag
         )}
         {results.length > limit && <div className={ui.emptyState}><button className={cx(ui.button, ui.secondary)} onClick={() => setLimit(limit + 24)}>نمایش واژه‌های بیشتر</button></div>}
       </div>
-      {action && <LibraryEditor action={action} onSave={onManage} onClose={() => setAction(null)} />}
+      {action && <LibraryEditor action={action.change} onSave={(change) => onManage(action.deckId, change)} onClose={() => setAction(null)} />}
     </>
   );
 }
 
-function ImportDeck({ target, onSave, onCancel }: {
+function ImportDeck({ target, existing, onSave, onCancel }: {
   target?: Deck;
-  onSave: (name: string, words: WordEntry[], deckId?: string) => void;
+  existing: ReadonlySet<string>;
+  onSave: (name: string, words: WordEntry[], deckId?: string, duplicates?: number) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
@@ -494,9 +529,9 @@ function ImportDeck({ target, onSave, onCancel }: {
   const [note, setNote] = useState("");
   const [input, setInput] = useState("");
   const [fileError, setFileError] = useState(false);
-  const parsed = useMemo(() => parseWords(input, target?.words), [input, target?.words]);
+  const parsed = useMemo(() => parseWords(input, existing), [input, existing]);
   const entry = { en: en.trim(), fa: fa.trim(), note: note.trim() };
-  const duplicate = format === "single" && target?.words.some((word) => wordKey(word) === wordKey(entry));
+  const duplicate = format === "single" && existing.has(englishWordKey(entry.en));
   const canSave = Boolean((target || name.trim()) && (format === "single"
     ? isWordEntry(entry) && !duplicate : parsed.words.length && !parsed.invalid.length));
 
@@ -508,7 +543,7 @@ function ImportDeck({ target, onSave, onCancel }: {
       </div>
       <form className={cx(ui.surface, ui.importPanel)} onSubmit={(event) => {
         event.preventDefault();
-        if (canSave) onSave(name.trim(), format === "single" ? [entry] : parsed.words, target?.id);
+        if (canSave) onSave(name.trim(), format === "single" ? [entry] : parsed.words, target?.id, format === "batch" ? parsed.duplicates : 0);
       }}>
         {!target && <label className={cx(ui.fieldLabel, ui.importLabel)}>نام مجموعه<input className={ui.field} value={name} onChange={(event) => setName(event.target.value)} placeholder="مثلاً واژه‌های کلاس" required maxLength={60} /></label>}
         <div className={ui.buttonRow} role="group" aria-label="روش افزودن واژه">
@@ -523,7 +558,7 @@ function ImportDeck({ target, onSave, onCancel }: {
             <input className={cx(ui.field, "phone:text-[16px]")} value={fa} onChange={(event) => setFa(event.target.value)} required />
           </label>
           <WordNoteField note={note} onChange={setNote} />
-          {duplicate && <p className={ui.muted} role="status">این واژه با همین معنی در مجموعه هست. یادداشتش را می‌توانی از کتابخانه ویرایش کنی.</p>}
+          {duplicate && <p className={ui.muted} role="status">این واژهٔ انگلیسی از قبل در کتابخانه هست. در «همهٔ واژه‌ها» می‌توانی پیدایش کنی.</p>}
         </> : <>
         <label className={cx(ui.fieldLabel, ui.importLabel)}>واژه‌ها
           <textarea className={cx(ui.field, "resize-y")} dir="ltr" value={input} onChange={(event) => { setInput(event.target.value); setFileError(false); }}
@@ -554,12 +589,12 @@ function ImportDeck({ target, onSave, onCancel }: {
         {format === "batch" && <>
         {fileError && <p className={ui.errorText} role="alert">فایل خوانده نشد. می‌توانی متن آن را مستقیم بچسبانی.</p>}
         {parsed.invalid.length > 0 && <p className={ui.errorText} role="alert">قالب سطرهای {parsed.invalid.slice(0, 10).map(number).join("، ")}{parsed.invalid.length > 10 ? " و سطرهای بعدی" : ""} را بررسی کن.</p>}
-        {parsed.duplicates > 0 && <p className={ui.muted}>{number(parsed.duplicates)} سطر تکراری در پیش‌نمایش حذف شد.</p>}
+        {parsed.duplicates > 0 && <p className={ui.muted} role="status">{number(parsed.duplicates)} واژهٔ تکراری کنار گذاشته شد.</p>}
         {parsed.words.length > 0 && (
           <div className={ui.importPreview}>
             <h2>پیش‌نمایش {number(parsed.words.length)} واژه</h2>
             <ul className={ui.retryList}>
-              {parsed.words.slice(0, 5).map((word) => <li key={wordKey(word)}><bdi dir="ltr" lang="en">{word.en}</bdi><div>{word.fa}<WordNote note={word.note} /></div></li>)}
+              {parsed.words.slice(0, 5).map((word) => <li key={englishWordKey(word.en)}><bdi dir="ltr" lang="en">{word.en}</bdi><div>{word.fa}<WordNote note={word.note} /></div></li>)}
             </ul>
           </div>
         )}
