@@ -84,7 +84,7 @@ export function Settings({ ready, readData, onRestore, goal, onGoal }: {
       <section className={cx(ui.surface, "grid max-w-[720px] gap-4 p-5 phone:p-3.5")} aria-labelledby="backup-heading">
         <div className="grid gap-1">
           <h2 id="backup-heading">پشتیبان‌گیری و بازیابی</h2>
-          <p className={ui.muted}>مجموعه‌ها، واژه‌های اضافه‌شده، پیشرفت تمرین، تاریخچهٔ پاسخ‌ها، زمان مطالعه، هدف روزانه و تم را در یک فایل JSON ذخیره کن.</p>
+          <p className={ui.muted}>مجموعه‌ها، واژه‌های اضافه‌شده، یادداشت‌ها، پیشرفت تمرین، تاریخچهٔ پاسخ‌ها، زمان مطالعه، هدف روزانه و تم را در یک فایل JSON ذخیره کن.</p>
         </div>
 
         <div className={ui.buttonRow}>

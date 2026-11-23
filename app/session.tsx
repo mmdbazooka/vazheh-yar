@@ -6,6 +6,7 @@ import { checkAnswer, number, pronounce, spoken, type Attempt, type Deck, type E
 import { durationLabel, type AnswerContext } from "../lib/activity";
 import { modes } from "./modes";
 import { cx, tileTone, ui } from "./styles";
+import { WordNote } from "./word-note";
 
 export type AnswerReceipt = { time: number; before?: Review; rating: Rating };
 export type GradeAnswer = (attempt: Attempt, context: AnswerContext, replacing?: AnswerReceipt) => AnswerReceipt;
@@ -14,9 +15,10 @@ function units(item: Exercise) {
   return item.kind === "learn" ? 0 : item.kind === "match" ? item.words.length : 1;
 }
 
-export function Session({ deck, exercises, adaptive, onGrade, onComplete, onRetry, onExit, onDashboard }: {
+export function Session({ deck, exercises, wordNotes, adaptive, onGrade, onComplete, onRetry, onExit, onDashboard }: {
   deck: Deck;
   exercises: Exercise[];
+  wordNotes: Record<string, string>;
   adaptive: boolean;
   onGrade: GradeAnswer;
   onComplete: () => number;
@@ -70,7 +72,7 @@ export function Session({ deck, exercises, adaptive, onGrade, onComplete, onRetr
           <>
             <h2 className="text-[16px]">واژه‌هایی که مرور بیشتری می‌خواهند</h2>
             <ul className={ui.retryList}>
-              {retry.map(({ word }) => <li key={word.id}><span dir="ltr" lang="en">{word.en}</span><span>{word.fa}</span></li>)}
+              {retry.map(({ word }) => <li key={word.id}><span dir="ltr" lang="en">{word.en}</span><div>{word.fa}<WordNote note={wordNotes[word.id]} /></div></li>)}
             </ul>
           </>
         )}
@@ -90,14 +92,15 @@ export function Session({ deck, exercises, adaptive, onGrade, onComplete, onRetr
         <span className={ui.muted}>بخش {number(index + 1)} از {number(queue.length)}</span>
       </div>
       <div className={cx(ui.progressTrack, "mb-5")} role="progressbar" aria-label="پیشرفت تمرین" aria-valuenow={progress}><span style={{ width: progress + "%" }} /></div>
-      {exercise.kind === "learn" && <Introduction words={exercise.words} onContinue={() => setIndex(index + 1)} />}
-      {exercise.kind === "match" && <Matching key={index} exercise={exercise} advance={advance} onGrade={onGrade} />}
-      {exercise.kind !== "learn" && exercise.kind !== "match" && <Question key={index} deck={deck} exercise={exercise} advance={advance} onGrade={onGrade} />}
+      {exercise.kind === "learn" && <Introduction key={index} words={exercise.words} wordNotes={wordNotes} onContinue={() => setIndex(index + 1)} />}
+      {exercise.kind === "match" && <Matching key={index} exercise={exercise} wordNotes={wordNotes} advance={advance} onGrade={onGrade} />}
+      {exercise.kind !== "learn" && exercise.kind !== "match" && <Question key={index} deck={deck} exercise={exercise}
+        note={wordNotes[exercise.word.id]} advance={advance} onGrade={onGrade} />}
     </section>
   );
 }
 
-function Introduction({ words, onContinue }: { words: Word[]; onContinue: () => void }) {
+function Introduction({ words, wordNotes, onContinue }: { words: Word[]; wordNotes: Record<string, string>; onContinue: () => void }) {
   const [audioError, setAudioError] = useState(false);
   const [showMeanings, setShowMeanings] = useState(true);
 
@@ -112,7 +115,7 @@ function Introduction({ words, onContinue }: { words: Word[]; onContinue: () => 
               <button className={ui.iconButton} aria-label={`تلفظ ${word.en}`} onClick={() => setAudioError(!pronounce(word.en))}><Volume2 size={16} /></button>
               <bdi lang="en" dir="ltr">{word.en}</bdi>
             </span>
-            <span>{showMeanings ? word.fa : "•••"}</span>
+            <div>{showMeanings ? <>{word.fa}<WordNote note={wordNotes[word.id]} /></> : "•••"}</div>
           </li>
         ))}
       </ul>
@@ -125,8 +128,9 @@ function Introduction({ words, onContinue }: { words: Word[]; onContinue: () => 
   );
 }
 
-function Question({ deck, exercise, advance, onGrade }: {
+function Question({ deck, exercise, note, advance, onGrade }: {
   deck: Deck;
+  note?: string;
   exercise: Exclude<Exercise, { kind: "match" | "learn" }>;
   advance: (results: Attempt[]) => void;
   onGrade: GradeAnswer;
@@ -224,6 +228,7 @@ function Question({ deck, exercise, advance, onGrade }: {
               <button className={cx(ui.button, ui.secondary)} onClick={() => finish(1)}>با مکث گفتم <kbd>2</kbd></button>
               <button className={cx(ui.button, ui.primary)} onClick={() => finish(2)}>یادم بود <kbd>3</kbd></button>
             </div>
+            <WordNote note={note} />
           </>
         ) : <button className={cx(ui.button, ui.primary)} onClick={() => setReveal(true)}><Eye size={18} /> دیدن جواب <kbd>Space</kbd></button>
       )}
@@ -265,6 +270,7 @@ function Question({ deck, exercise, advance, onGrade }: {
             <span><bdi dir="ltr" lang="en">{word.en}</bdi><span className={ui.feedbackSeparator}> · </span>{word.fa}</span>
             {text && !result && <span className={ui.muted}>پاسخ تو <bdi>{text}</bdi></span>}
           </div>
+          <WordNote note={note} />
           <div className={cx(ui.buttonRow, "mt-[11px]")}>
             <button ref={nextButton} className={cx(ui.button, ui.primary)} onClick={() => finish(receipt.current!.rating)}>ادامه <ArrowLeft size={17} /></button>
             {!result && kind === "type" && text.trim() && <button className={cx(ui.button, ui.secondary)} onClick={() => finish(hint ? 1 : 2)}>معادل من هم درست بود</button>}
@@ -275,8 +281,9 @@ function Question({ deck, exercise, advance, onGrade }: {
   );
 }
 
-function Matching({ exercise, advance, onGrade }: {
+function Matching({ exercise, wordNotes, advance, onGrade }: {
   exercise: Extract<Exercise, { kind: "match" }>;
+  wordNotes: Record<string, string>;
   advance: (results: Attempt[]) => void;
   onGrade: GradeAnswer;
 }) {
@@ -285,6 +292,7 @@ function Matching({ exercise, advance, onGrade }: {
   const [missed, setMissed] = useState<string[]>([]);
   const [wrong, setWrong] = useState<string | null>(null);
   const complete = matched.length === exercise.words.length;
+  const annotated = complete ? exercise.words.filter((word) => typeof wordNotes[word.id] === "string" && wordNotes[word.id]) : [];
 
   function pair(word: Word) {
     if (!selected) return;
@@ -329,6 +337,9 @@ function Matching({ exercise, advance, onGrade }: {
       <p className={cx(ui.muted, ui.matchStatus)} role="status">
         {wrong ? "این جفت درست نبود. معنی دیگری را امتحان کن." : `${number(matched.length)} از ${number(exercise.words.length)} جفت پیدا شد`}
       </p>
+      {annotated.length > 0 && <ul className="mb-3 grid gap-2 text-start">
+        {annotated.map((word) => <li key={word.id}><bdi lang="en" dir="ltr">{word.en}</bdi><WordNote note={wordNotes[word.id]} /></li>)}
+      </ul>}
       {complete && <button className={cx(ui.button, ui.primary)} autoFocus onClick={() => advance(exercise.words.map((word) => ({ word, rating: missed.includes(word.id) ? 0 : 2 })))}>ادامه <ArrowLeft size={17} /></button>}
     </div>
   );

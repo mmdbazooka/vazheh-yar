@@ -1,4 +1,4 @@
-import { isWordEntry, starter, wordKey, type Deck, type StudyData, type Word, type WordEntry } from "./study";
+import { isWordEntry, starter, wordKey, wordNoteLimit, type Deck, type StudyData, type Word, type WordEntry } from "./study";
 import coding from "./vocabulary/coding.json";
 import web from "./vocabulary/web.json";
 import backend from "./vocabulary/backend.json";
@@ -11,6 +11,7 @@ import work from "./vocabulary/work.json";
 import meetings from "./vocabulary/meetings.json";
 import phrasal from "./vocabulary/phrasal.json";
 import reading from "./vocabulary/reading.json";
+import cefr from "./vocabulary/cefr.json";
 
 type DeckSource = Omit<Deck, "words"> & { words: Omit<Deck["words"][number], "id">[] };
 
@@ -27,6 +28,7 @@ function makeGroup(label: string, sources: DeckSource[]) {
 }
 
 export const builtInGroups = [
+  makeGroup("واژگان منتخب بر اساس سطح (CEFR)", cefr),
   makeGroup("برنامه‌نویسی", [...coding, ...web, ...backend, ...tooling]),
   makeGroup("انگلیسی روزمره", [...everyday, ...conversation, ...practical]),
   makeGroup("چت و پیام", chat),
@@ -47,7 +49,14 @@ export type LibraryChange =
   | { kind: "rename-deck"; name: string }
   | { kind: "delete-deck" }
   | { kind: "edit-word"; wordId: string; entry: WordEntry }
+  | { kind: "edit-note"; wordId: string; note: string }
   | { kind: "delete-word"; wordId: string };
+
+function saveNote(notes: StudyData["wordNotes"], wordId: string, note: string) {
+  const updated = { ...notes, [wordId]: note };
+  if (!note) delete updated[wordId];
+  return updated;
+}
 
 export function changeLibrary(data: StudyData, deckId: string, change: LibraryChange):
   { data: StudyData; message: string } | { error: string } {
@@ -66,7 +75,11 @@ export function changeLibrary(data: StudyData, deckId: string, change: LibraryCh
     const addedWords = { ...data.addedWords };
     delete addedWords[deckId];
     const reviews = { ...data.reviews };
-    for (const { id } of [...personal.words, ...additions]) delete reviews[id];
+    const wordNotes = { ...data.wordNotes };
+    for (const { id } of [...personal.words, ...additions]) {
+      delete reviews[id];
+      delete wordNotes[id];
+    }
     return {
       data: {
         ...data,
@@ -74,16 +87,25 @@ export function changeLibrary(data: StudyData, deckId: string, change: LibraryCh
         deckId: data.deckId === deckId ? starter.id : data.deckId,
         addedWords,
         reviews,
+        wordNotes,
       },
       message: "مجموعه حذف شد.",
     };
   }
 
   const { wordId } = change;
+  if (change.kind === "edit-note") {
+    const deck = getDecks(data).find((item) => item.id === deckId);
+    if (!deck?.words.some((word) => word.id === wordId)) return { error: "این واژه در مجموعه پیدا نشد." };
+    const note = change.note.trim();
+    if (note.length > wordNoteLimit) return { error: "یادداشت بیش از حد طولانی است." };
+    return { data: { ...data, wordNotes: saveNote(data.wordNotes, wordId, note) }, message: note ? "یادداشت ذخیره شد." : "یادداشت پاک شد." };
+  }
   const original = personal?.words.find((word) => word.id === wordId) ?? additions.find((word) => word.id === wordId);
   if (!original) return { error: "این واژه در میان واژه‌های شخصی مجموعه پیدا نشد." };
 
   let replacement: Word | undefined;
+  let wordNotes = data.wordNotes;
   if (change.kind === "edit-word") {
     const entry = { en: change.entry.en.trim(), fa: change.entry.fa.trim() };
     if (!isWordEntry(entry)) return { error: "واژهٔ انگلیسی و معنی فارسی را وارد کن." };
@@ -92,6 +114,11 @@ export function changeLibrary(data: StudyData, deckId: string, change: LibraryCh
       return { error: "این واژه با همین معنی از قبل در مجموعه هست." };
     }
     replacement = { ...entry, id: wordId };
+    if (change.entry.note !== undefined) {
+      const note = change.entry.note.trim();
+      if (note.length > wordNoteLimit) return { error: "یادداشت بیش از حد طولانی است." };
+      wordNotes = saveNote(wordNotes, wordId, note);
+    }
   }
 
   function updateWords(words: Word[]) {
@@ -104,10 +131,13 @@ export function changeLibrary(data: StudyData, deckId: string, change: LibraryCh
   if (updatedAdditions.length) addedWords[deckId] = updatedAdditions;
   else delete addedWords[deckId];
   const reviews = { ...data.reviews };
-  if (change.kind === "delete-word") delete reviews[wordId];
+  if (change.kind === "delete-word") {
+    delete reviews[wordId];
+    wordNotes = saveNote(wordNotes, wordId, "");
+  }
 
   return {
-    data: { ...data, decks, addedWords, reviews },
+    data: { ...data, decks, addedWords, reviews, wordNotes },
     message: change.kind === "edit-word" ? "واژه ویرایش شد." : "واژه حذف شد.",
   };
 }

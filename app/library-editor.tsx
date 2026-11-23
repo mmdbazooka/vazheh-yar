@@ -5,10 +5,12 @@ import { Trash2 } from "lucide-react";
 import type { LibraryChange } from "../lib/decks";
 import type { Word } from "../lib/study";
 import { cx, ui } from "./styles";
+import { WordNoteField } from "./word-note";
 
 export type LibraryAction =
   | { kind: "rename-deck" | "delete-deck"; name: string }
-  | { kind: "edit-word" | "delete-word"; word: Word };
+  | { kind: "delete-word"; word: Word }
+  | { kind: "edit-word" | "edit-note"; word: Word; note?: string };
 
 export function LibraryEditor({ action, onSave, onClose }: {
   action: LibraryAction;
@@ -21,12 +23,14 @@ export function LibraryEditor({ action, onSave, onClose }: {
   const [name, setName] = useState("name" in action ? action.name : "");
   const [en, setEn] = useState("word" in action ? action.word.en : "");
   const [fa, setFa] = useState("word" in action ? action.word.fa : "");
+  const [note, setNote] = useState("note" in action && typeof action.note === "string" ? action.note : "");
   const [error, setError] = useState("");
   const deleting = action.kind === "delete-word" || action.kind === "delete-deck";
   const title = {
     "rename-deck": "تغییر نام مجموعه",
     "delete-deck": "حذف مجموعه",
     "edit-word": "ویرایش واژه",
+    "edit-note": "مثال یا یادداشت واژه",
     "delete-word": "حذف واژه",
   }[action.kind];
 
@@ -45,7 +49,10 @@ export function LibraryEditor({ action, onSave, onClose }: {
         change = { kind: action.kind };
         break;
       case "edit-word":
-        change = { kind: action.kind, wordId: action.word.id, entry: { en, fa } };
+        change = { kind: action.kind, wordId: action.word.id, entry: { en, fa, note } };
+        break;
+      case "edit-note":
+        change = { kind: action.kind, wordId: action.word.id, note };
         break;
       case "delete-word":
         change = { kind: action.kind, wordId: action.word.id };
@@ -77,6 +84,8 @@ export function LibraryEditor({ action, onSave, onClose }: {
             </label>
           </>
         )}
+        {action.kind === "edit-note" && <p className="wrap-anywhere"><bdi dir="ltr" lang="en">{action.word.en}</bdi> · {action.word.fa}</p>}
+        {(action.kind === "edit-word" || action.kind === "edit-note") && <WordNoteField note={note} onChange={setNote} />}
         {action.kind === "delete-word" && (
           <p id={descriptionId} className={cx(ui.muted, "wrap-anywhere")}>
             واژهٔ «<bdi dir="ltr" lang="en">{action.word.en}</bdi>» و سابقهٔ تمرینش حذف می‌شوند.

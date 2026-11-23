@@ -1,6 +1,6 @@
 import { builtInDecks } from "./decks";
 import { activityAt, defaultGoal, drills, goals, type Activity, type Drill } from "./activity";
-import { starter, type Deck, type Review, type StudyData, type Word } from "./study";
+import { starter, wordNoteLimit, type Deck, type Review, type StudyData, type Word } from "./study";
 
 const backupFormat = "vazheyar-backup";
 const backupVersion = 2;
@@ -35,6 +35,10 @@ function isReview(value: unknown): value is Review {
 
 function isAddedWords(value: unknown): value is StudyData["addedWords"] {
   return isRecord(value) && Object.values(value).every(isWordList);
+}
+
+function isWordNotes(value: unknown): value is StudyData["wordNotes"] {
+  return isRecord(value) && Object.values(value).every((note) => isText(note) && note.length <= wordNoteLimit);
 }
 
 type LibraryData = Pick<StudyData, "decks" | "addedWords" | "reviews" | "theme" | "deckId">;
@@ -94,8 +98,9 @@ export function parseBackup(content: string): StudyData {
   if (!isLibraryData(value.data)) {
     throw new Error("داده‌های فایل پشتیبان ناقص یا نامعتبرند.");
   }
-  const { decks, addedWords, reviews, theme, deckId } = value.data;
-  const library = { decks, addedWords, reviews, theme, deckId };
+  const { decks, addedWords, reviews, theme, deckId, wordNotes = {} } = value.data;
+  if (!isWordNotes(wordNotes)) throw new Error("یادداشت‌های واژه‌ها در فایل پشتیبان نامعتبرند.");
+  const library = { decks, addedWords, reviews, theme, deckId, wordNotes };
   if (value.version === 1) return { ...library, activity: {}, dailyGoal: defaultGoal, timer: null };
   const { activity, dailyGoal } = value.data;
   if (!isActivity(activity) || typeof dailyGoal !== "number" || !goals.includes(dailyGoal)) {

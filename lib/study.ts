@@ -1,8 +1,8 @@
 import seed from "./seed.json";
 import { defaultGoal, startingDirection, type Activity, type StudyTimer } from "./activity";
 
-export type WordEntry = { en: string; fa: string };
-export type Word = WordEntry & { id: string };
+export type WordEntry = { en: string; fa: string; note?: string };
+export type Word = Pick<WordEntry, "en" | "fa"> & { id: string };
 export type Deck = { id: string; name: string; words: Word[] };
 export type Review = { level: number; due: number; missed: boolean };
 export type Rating = 0 | 1 | 2;
@@ -12,6 +12,7 @@ export type Scope = "daily" | "due" | "all" | "mistakes" | "new";
 export type StudySettings = { mode: Mode; direction: Direction; scope: Scope; limit: number };
 
 export const storageKey = "vazheyar.v1";
+export const wordNoteLimit = 4000;
 export const starter: Deck = {
   id: "pdf",
   name: "واژگان فایل من",
@@ -22,6 +23,7 @@ export type StudyData = {
   decks: Deck[];
   addedWords: Record<string, Word[]>;
   reviews: Record<string, Review>;
+  wordNotes: Record<string, string>;
   theme: "light" | "dark" | null;
   deckId: string;
   activity: Activity;
@@ -30,7 +32,7 @@ export type StudyData = {
 };
 
 export const defaultData: StudyData = {
-  decks: [], addedWords: {}, reviews: {}, theme: null, deckId: starter.id,
+  decks: [], addedWords: {}, reviews: {}, wordNotes: {}, theme: null, deckId: starter.id,
   activity: {}, dailyGoal: defaultGoal, timer: null,
 };
 const day = 86_400_000;
@@ -206,6 +208,15 @@ function csvFields(line: string) {
   return quoted ? [] : [...fields, field];
 }
 
+function importFields(line: string) {
+  const csv = csvFields(line);
+  const divider = line.includes("\t") ? "\t" : line.includes("|") ? "|" : null;
+  if (!divider) return csv;
+  // A quoted CSV example can itself contain a pipe or a tab.
+  if (csv.length === 3 && csv[2].includes(divider) && !csv[0].includes(divider) && !csv[1].includes(divider)) return csv;
+  return line.split(divider);
+}
+
 export const isWordEntry = ({ en, fa }: WordEntry) => /[a-z]/i.test(en) && /\p{Script=Arabic}/u.test(fa);
 
 export const wordKey = ({ en, fa }: WordEntry) => normalize(en) + "|" + normalize(fa);
@@ -219,10 +230,9 @@ export function parseWords(input: string, existing: readonly WordEntry[] = []) {
   input.replace(/^\uFEFF/, "").split(/\r?\n/).forEach((raw, index) => {
     const line = raw.trim();
     if (!line) return;
-    const divider = line.includes("\t") ? "\t" : line.includes("|") ? "|" : null;
-    const [en = "", fa = "", ...extra] = (divider ? line.split(divider) : csvFields(line)).map((field) => field.trim());
+    const [en = "", fa = "", note = "", ...extra] = importFields(line).map((field) => field.trim());
     if (index === 0 && /^(en|english|word|انگلیسی)$/i.test(en) && /^(fa|farsi|persian|meaning|فارسی|معنی)$/i.test(fa)) return;
-    if (!isWordEntry({ en, fa }) || extra.length) {
+    if (!isWordEntry({ en, fa }) || extra.length || note.length > wordNoteLimit) {
       invalid.push(index + 1);
       return;
     }
@@ -232,7 +242,7 @@ export function parseWords(input: string, existing: readonly WordEntry[] = []) {
       return;
     }
     seen.add(key);
-    words.push({ en, fa });
+    words.push({ en, fa, ...(note ? { note } : {}) });
   });
   return { words, invalid, duplicates };
 }

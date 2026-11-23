@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownToLine, ArrowLeft, BookOpen, Check, CircleCheck, House,
-  Layers3, LibraryBig, ListRestart, Moon, Pencil, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Trash2, Volume2, X,
+  Layers3, LibraryBig, ListRestart, Moon, Pencil, Plus, Search, Settings as SettingsIcon, Sparkles, StickyNote, Sun, Trash2, Volume2, X,
 } from "lucide-react";
 import {
-  createExercises, isKnown, manualReview, normalize, number, parseWords, pronounce, starter,
+  createExercises, isKnown, isWordEntry, manualReview, normalize, number, parseWords, pronounce, starter,
   updateReview, wordKey, type Deck, type Exercise, type Mode, type StudyData,
   type StudySettings, type Word, type WordEntry,
 } from "../lib/study";
@@ -21,6 +21,7 @@ import { Session, type AnswerReceipt, type GradeAnswer } from "./session";
 import { Settings } from "./settings";
 import { TimerControl, useStudyTimer } from "./study-timer";
 import { useStudyStore } from "./use-study-store";
+import { WordNote, WordNoteField } from "./word-note";
 
 type View = "home" | "practice" | "words" | "mistakes" | "import" | "append" | "session" | "settings";
 type Filter = "all" | "new" | "due" | "known" | "mistakes";
@@ -138,8 +139,12 @@ export default function Home() {
       }
 
       const existing = new Set(target?.words.map(wordKey));
-      const additions = words.filter((word) => !existing.has(wordKey(word)))
-        .map((word) => ({ ...word, id: crypto.randomUUID() }));
+      const wordNotes = { ...previous.wordNotes };
+      const additions = words.filter((word) => !existing.has(wordKey(word))).map(({ en, fa, note }) => {
+        const id = crypto.randomUUID();
+        if (note) wordNotes[id] = note;
+        return { en, fa, id };
+      });
       if (!additions.length) {
         setNotice("این واژه‌ها از قبل در مجموعه هستند.");
         return;
@@ -147,8 +152,8 @@ export default function Home() {
 
       const id = target?.id ?? crypto.randomUUID();
       const next: StudyData = target
-        ? { ...previous, deckId: id, addedWords: { ...previous.addedWords, [id]: [...(previous.addedWords[id] ?? []), ...additions] } }
-        : { ...previous, deckId: id, decks: [...previous.decks, { id, name, words: additions }] };
+        ? { ...previous, deckId: id, wordNotes, addedWords: { ...previous.addedWords, [id]: [...(previous.addedWords[id] ?? []), ...additions] } }
+        : { ...previous, deckId: id, wordNotes, decks: [...previous.decks, { id, name, words: additions }] };
       saveData(next);
       openWords();
       setNotice(number(additions.length) + " واژه به «" + (target?.name ?? name) + "» اضافه شد.");
@@ -341,6 +346,7 @@ export default function Home() {
           )}
 
           {view === "session" && session && <Session key={session.key} deck={session.deck} exercises={session.exercises}
+            wordNotes={data.wordNotes}
             adaptive={settings.mode === "smart"} onGrade={grade} onComplete={clock.finishPractice} onExit={() => go(session.returnTo)} onDashboard={() => go("home")}
             onRetry={(words) => start(settings.mode === "match" ? { ...settings, mode: "type" } : settings, words, session.deck, session.returnTo)} />}
         </div>
@@ -396,11 +402,13 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onManag
   const needle = normalize(query);
   const results = deck.words.filter((word) => {
     const review = data.reviews[word.id];
+    const note = data.wordNotes[word.id];
     if (filter === "new" && review) return false;
     if (filter === "due" && (!review || review.due > now)) return false;
     if (filter === "known" && !isKnown(review)) return false;
     if (filter === "mistakes" && !review?.missed) return false;
-    return !needle || normalize(word.en).includes(needle) || normalize(word.fa).includes(needle);
+    return !needle || normalize(word.en).includes(needle) || normalize(word.fa).includes(needle) ||
+      (typeof note === "string" && normalize(note).includes(needle));
   }).sort((a, b) => a.en.localeCompare(b.en, "en"));
 
   return (
@@ -424,7 +432,7 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onManag
       <div className={cx(ui.surface, ui.library)}>
         <div className={ui.libraryControls}>
           <div className={ui.searchBox}><Search size={18} /><input aria-label="جست‌وجوی واژه" value={query} dir="auto"
-            placeholder="جست‌وجوی واژه یا معنی…" onChange={(event) => { setQuery(event.target.value); setLimit(24); }} /></div>
+            placeholder="واژه، معنی یا یادداشت…" onChange={(event) => { setQuery(event.target.value); setLimit(24); }} /></div>
           <div className={ui.filters} aria-label="فیلتر واژه‌ها">
             {filters.map(({ id, title, count }) => <button className={ui.filterButton} aria-pressed={id === filter}
               onClick={() => { onFilter(id); setLimit(24); }} key={id}>{title} <small>{number(count)}</small></button>)}
@@ -438,10 +446,11 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onManag
               const review = data.reviews[word.id];
               const mastered = isKnown(review);
               const editable = personal || addedIds.has(word.id);
+              const note = data.wordNotes[word.id];
               return (
                 <tr className={ui.wordRow} role="row" key={word.id}>
                   <td className={cx(ui.wordCell, ui.wordTerm)} role="cell"><bdi dir="ltr" lang="en">{word.en}</bdi></td>
-                  <td className={cx(ui.wordCell, ui.wordMeaning)} role="cell">{word.fa}</td>
+                  <td className={cx(ui.wordCell, ui.wordMeaning)} role="cell">{word.fa}<WordNote note={note} /></td>
                   <td className={cx(ui.wordCell, ui.wordMeta)} role="cell"><button className={ui.wordStatus} onClick={() => onToggle(word)} aria-pressed={mastered}
                     title={mastered ? "بازگرداندن به صف مرور" : "علامت‌گذاری به عنوان یادگرفته‌شده"}>
                     <CircleCheck size={15} /> {mastered ? "یاد گرفتم" : review ? "در حال مرور" : "جدید"}
@@ -451,12 +460,15 @@ function Library({ deck, data, stats, filter, onFilter, onToggle, onAdd, onManag
                     <button className={ui.iconButton} aria-label={`فلش‌کارت ${word.en}`} title="باز کردن فلش‌کارت" onClick={() => onPractice(word)}><BookOpen size={17} /></button>
                     {editable && (
                       <>
-                        <button className={ui.iconButton} aria-label={"ویرایش واژه " + word.en} title="ویرایش واژه"
-                          onClick={() => setAction({ kind: "edit-word", word })}><Pencil size={17} /></button>
+                        <button className={ui.iconButton} aria-label={"ویرایش واژه " + word.en} title="ویرایش واژه و یادداشت"
+                          onClick={() => setAction({ kind: "edit-word", word, note })}><Pencil size={17} /></button>
                         <button className={cx(ui.iconButton, "text-(--error)!")} aria-label={"حذف واژه " + word.en} title="حذف واژه"
                           onClick={() => setAction({ kind: "delete-word", word })}><Trash2 size={17} /></button>
                       </>
                     )}
+                    {!editable && <button className={cx(ui.iconButton, note && "bg-(--accent-soft)")}
+                      aria-label={"مثال یا یادداشت " + word.en} title={note ? "ویرایش یادداشت" : "افزودن مثال یا یادداشت"}
+                      onClick={() => setAction({ kind: "edit-note", word, note })}><StickyNote size={17} /></button>}
                   </div></td>
                 </tr>
               );
@@ -476,30 +488,51 @@ function ImportDeck({ target, onSave, onCancel }: {
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
+  const [format, setFormat] = useState<"single" | "batch">(target ? "single" : "batch");
+  const [en, setEn] = useState("");
+  const [fa, setFa] = useState("");
+  const [note, setNote] = useState("");
   const [input, setInput] = useState("");
   const [fileError, setFileError] = useState(false);
   const parsed = useMemo(() => parseWords(input, target?.words), [input, target?.words]);
-  const canSave = Boolean((target || name.trim()) && parsed.words.length && !parsed.invalid.length);
+  const entry = { en: en.trim(), fa: fa.trim(), note: note.trim() };
+  const duplicate = format === "single" && target?.words.some((word) => wordKey(word) === wordKey(entry));
+  const canSave = Boolean((target || name.trim()) && (format === "single"
+    ? isWordEntry(entry) && !duplicate : parsed.words.length && !parsed.invalid.length));
 
   return (
     <>
       <div className={ui.pageHeading}>
         <h1>{target ? "افزودن واژه" : "افزودن مجموعه"}</h1>
         {target && <p>مجموعهٔ مقصد «{target.name}»</p>}
-        <p>واژه‌ها را بچسبان یا فایل متنی، CSV یا TSV را انتخاب کن.</p>
       </div>
       <form className={cx(ui.surface, ui.importPanel)} onSubmit={(event) => {
         event.preventDefault();
-        if (canSave) onSave(name.trim(), parsed.words, target?.id);
+        if (canSave) onSave(name.trim(), format === "single" ? [entry] : parsed.words, target?.id);
       }}>
         {!target && <label className={cx(ui.fieldLabel, ui.importLabel)}>نام مجموعه<input className={ui.field} value={name} onChange={(event) => setName(event.target.value)} placeholder="مثلاً واژه‌های کلاس" required maxLength={60} /></label>}
+        <div className={ui.buttonRow} role="group" aria-label="روش افزودن واژه">
+          <button type="button" className={cx(ui.button, ui.secondary, "aria-pressed:bg-(--accent-soft)")} aria-pressed={format === "single"} onClick={() => setFormat("single")}>یک واژه</button>
+          <button type="button" className={cx(ui.button, ui.secondary, "aria-pressed:bg-(--accent-soft)")} aria-pressed={format === "batch"} onClick={() => setFormat("batch")}>چند واژه یا فایل</button>
+        </div>
+        {format === "single" ? <>
+          <label className={ui.fieldLabel}>واژهٔ انگلیسی
+            <input className={cx(ui.field, "phone:text-[16px]")} value={en} dir="ltr" lang="en" onChange={(event) => setEn(event.target.value)} required />
+          </label>
+          <label className={ui.fieldLabel}>معنی فارسی
+            <input className={cx(ui.field, "phone:text-[16px]")} value={fa} onChange={(event) => setFa(event.target.value)} required />
+          </label>
+          <WordNoteField note={note} onChange={setNote} />
+          {duplicate && <p className={ui.muted} role="status">این واژه با همین معنی در مجموعه هست. یادداشتش را می‌توانی از کتابخانه ویرایش کنی.</p>}
+        </> : <>
         <label className={cx(ui.fieldLabel, ui.importLabel)}>واژه‌ها
           <textarea className={cx(ui.field, "resize-y")} dir="ltr" value={input} onChange={(event) => { setInput(event.target.value); setFileError(false); }}
-            placeholder={"curious | کنجکاو\nsteady | ثابت، پایدار\nlook up | جست‌وجو کردن"} rows={8} spellCheck={false} />
+            placeholder={"curious | کنجکاو | She was curious about how it worked.\nsteady | ثابت، پایدار"} rows={8} spellCheck={false} />
         </label>
-        <p className={cx(ui.muted, ui.importHelp)}>در هر سطر، اول انگلیسی و بعد فارسی را بنویس. برای جداسازی از <bdi>|</bdi>، تب یا ویرگول CSV استفاده کن.</p>
+        <p className={cx(ui.muted, ui.importHelp)}>در هر سطر، انگلیسی و فارسی را بنویس. ستون سوم برای مثال یا یادداشت اختیاری است. جداکننده می‌تواند <bdi>|</bdi>، تب یا ویرگول CSV باشد.</p>
+        </>}
         <div className={ui.buttonRow}>
-          <label className={cx(ui.button, ui.secondary, ui.fileButton)}><ArrowDownToLine size={17} /> انتخاب فایل
+          {format === "batch" && <label className={cx(ui.button, ui.secondary, ui.fileButton)}><ArrowDownToLine size={17} /> انتخاب فایل
             <input type="file" accept=".txt,.csv,.tsv,text/plain,text/csv,text/tab-separated-values"
               onChange={async (event) => {
                 const file = event.target.files?.[0];
@@ -514,10 +547,11 @@ function ImportDeck({ target, onSave, onCancel }: {
                   setFileError(true);
                 }
               }} />
-          </label>
+          </label>}
           <button className={cx(ui.button, ui.primary)} disabled={!canSave}>{target ? "افزودن به مجموعه" : "ذخیرهٔ مجموعه"} <ArrowLeft size={17} /></button>
           {target && <button className={cx(ui.button, ui.secondary)} type="button" onClick={onCancel}>بازگشت</button>}
         </div>
+        {format === "batch" && <>
         {fileError && <p className={ui.errorText} role="alert">فایل خوانده نشد. می‌توانی متن آن را مستقیم بچسبانی.</p>}
         {parsed.invalid.length > 0 && <p className={ui.errorText} role="alert">قالب سطرهای {parsed.invalid.slice(0, 10).map(number).join("، ")}{parsed.invalid.length > 10 ? " و سطرهای بعدی" : ""} را بررسی کن.</p>}
         {parsed.duplicates > 0 && <p className={ui.muted}>{number(parsed.duplicates)} سطر تکراری در پیش‌نمایش حذف شد.</p>}
@@ -525,10 +559,11 @@ function ImportDeck({ target, onSave, onCancel }: {
           <div className={ui.importPreview}>
             <h2>پیش‌نمایش {number(parsed.words.length)} واژه</h2>
             <ul className={ui.retryList}>
-              {parsed.words.slice(0, 5).map((word, index) => <li key={index}><bdi dir="ltr" lang="en">{word.en}</bdi><span>{word.fa}</span></li>)}
+              {parsed.words.slice(0, 5).map((word) => <li key={wordKey(word)}><bdi dir="ltr" lang="en">{word.en}</bdi><div>{word.fa}<WordNote note={word.note} /></div></li>)}
             </ul>
           </div>
         )}
+        </>}
       </form>
     </>
   );
